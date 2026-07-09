@@ -1,0 +1,283 @@
+YHAT MCP SERVER
+Product Requirements Document
+Acceso seguro y auditable a SQL Server para asistentes de IA
+
+1. Resumen Ejecutivo
+Yhat MCP Server es un Model Context Protocol (MCP) server propio que permite al equipo de análisis de datos de Yhat interactuar con Microsoft SQL Server a través de asistentes de IA (Claude, Cursor, VS Code) sin exponer más superficie de la estrictamente necesaria.
+A diferencia de los MCPs genéricos de terceros, este servidor aplica capas explícitas de validación, autorización y auditoría, de modo que la IA únicamente puede leer (y, en casos controlados, escribir) sobre las tablas y procedimientos que el equipo autorice de forma expresa.
+1.1 Problema
+Los MCPs de terceros exponen demasiado esquema o carecen de control granular por tabla/rol.
+El equipo necesita explorar datos con IA sin riesgo de modificaciones accidentales o maliciosas.
+No existe trazabilidad de qué consultas ejecuta la IA ni quién las solicitó.
+Varios clientes de Yhat operan en el sector financiero (NinetyOne, AMCS, EDR, Skandia), por lo que cualquier acceso asistido por IA a sus datos debe ser defendible ante una auditoría.
+1.2 Solución
+Un MCP server propio, ligero y extensible que:
+Expone solo las tablas/vistas autorizadas mediante whitelist explícita.
+Bloquea operaciones destructivas por defecto (modo solo-lectura).
+Registra cada interacción para auditoría, con logs legibles y trazables por usuario.
+Permite perfiles de acceso diferenciados (reader / writer / admin) por miembro del equipo.
+No depende de servicios cloud obligatorios, minimizando costo y superficie de ataque adicional.
+1.3 Alcance y No-Objetivos
+Para evitar ambigüedad sobre qué cubre este proyecto, se listan explícitamente los no-objetivos de la v1:
+No es un reemplazo de las herramientas de BI existentes (Power BI, Looker) — es un canal de exploración ad hoc para el equipo técnico.
+No gestiona la creación/alteración de esquema (DDL) en ningún rol, incluido admin, en la v1.
+No provee interfaz gráfica propia; el punto de entrada es siempre un cliente MCP (Claude Desktop, Cursor, VS Code).
+No sustituye los controles de acceso ya existentes a nivel de SQL Server/AWS; los complementa.
+1.4 Alternativas Consideradas
+2. Objetivos
+2.1 Objetivos de Negocio
+2.2 Objetivos Técnicos
+3. Stakeholders
+4. Requisitos Funcionales
+4.1 Core — Interacción con la Base de Datos
+4.2 Seguridad — Capas de Protección
+4.3 Auditoría y Observabilidad
+4.4 Configuración y Despliegue
+5. Requisitos No Funcionales
+6. Arquitectura Técnica
+6.1 Diagrama de Componentes
+CLIENTE MCP: Claude Desktop | Cursor | VS Code + Cline
+        └──────────────┬──────────────┘
+                Yhat MCP Server (Python 3.10+, asyncio, stdio/SSE)
+                       │
+     ┌─────────────────┼─────────────────┐
+  Validador SQL    Audit Logger      Query Guard + RBAC
+     └─────────────────┼─────────────────┘
+                       │
+              SQL Server (pyodbc, TLS)
+6.2 Flujo de una Consulta
+Recepción: el cliente MCP envía una petición (ej.: "dame las ventas del Q2").
+Traducción: el LLM genera el SQL (o el usuario lo proporciona directamente).
+Validación: el Query Guard analiza el SQL — rol autorizado, reglas de seguridad, tabla en whitelist.
+Ejecución: si pasa validación, se ejecuta contra SQL Server con parámetros ligados, timeout y límite de filas.
+Logging: se registra la consulta (metadatos, no el resultado completo), el usuario, el resultado y el tiempo.
+Respuesta: se devuelve el resultado al LLM en formato legible.
+6.3 Estructura del Proyecto
+yhat-mcp-server/
+├── yhat_mcp/
+│   ├── __init__.py
+│   ├── server.py          # Entry point del servidor MCP
+│   ├── config.py          # Carga de YAML + variables de entorno
+│   ├── secrets.py         # Resolución de credenciales (env / vault)
+│   ├── validator.py       # Query Guard + reglas de seguridad
+│   ├── database.py        # Capa de conexión a SQL Server
+│   ├── audit.py           # Sistema de logging
+│   ├── rbac.py            # Lógica de roles y permisos
+│   └── models.py          # Pydantic models
+├── config/
+│   └── yhat-mcp-config.yaml   # Configuración por entorno (sin secretos)
+├── tests/
+│   ├── test_validator.py
+│   ├── test_database.py
+│   └── test_rbac.py
+├── logs/                  # Directorio de logs (gitignored)
+├── Dockerfile
+├── requirements.txt
+├── pyproject.toml
+├── Makefile
+└── README.md
+7. Modelo de Seguridad y Cumplimiento
+Dado que varios clientes de Yhat pertenecen al sector financiero, esta sección hace explícitos los controles que el diseño original dejaba implícitos.
+8. Stack Tecnológico
+9. Casos de Uso
+UC-01: Exploración de datos por un analista junior
+Actor: Analista con rol "reader".
+Flujo: Pide a Claude "muéstrame las ventas del último mes por región". El MCP valida que la tabla reporting.ventas_mensuales está en la whitelist, ejecuta el SELECT, limita a 1000 filas, loggea la acción y devuelve los resultados.
+Resultado: el analista obtiene datos sin riesgo de modificar nada.
+UC-02: Carga de datos en staging
+Actor: Analista senior con rol "writer".
+Flujo: Pide "inserta los registros del CSV en staging.clientes_nuevos". El MCP detecta que es un INSERT, verifica que la tabla está permitida para writers, pide confirmación explícita, ejecuta y loggea.
+Resultado: operación controlada y trazada.
+UC-03: Intento de operación destructiva
+Actor: cualquier usuario.
+Flujo: la IA genera accidentalmente un DROP TABLE reporting.ventas. El Query Guard detecta la palabra clave DROP, bloquea la ejecución, devuelve un error claro al LLM y loggea un WARN.
+Resultado: la base de datos está protegida; el usuario recibe una explicación.
+UC-04: Auditoría semanal
+Actor: Tech Lead.
+Flujo: revisa logs/yhat-mcp-2026-07-09.log y ve que una analista ejecutó 45 queries esta semana, todas de lectura, con tiempo promedio de 0.8s; detecta que una query fue bloqueada por intentar un DELETE sin WHERE.
+Resultado: visibilidad completa del uso de la herramienta.
+UC-05: Intento de inyección SQL vía prompt (nuevo)
+Actor: usuario (intencional o accidental) o LLM con un prompt manipulado.
+Flujo: el texto generado intenta cerrar la consulta original e inyectar SQL adicional. Como la ejecución usa parámetros ligados (FR-18), la inyección se trata como dato literal y no como código; adicionalmente el Query Guard bloquea patrones sospechosos y loggea WARN.
+Resultado: la inyección no altera la consulta ejecutada.
+10. Roadmap
+Fase 1 — MVP (Semanas 1-2)
+Servidor MCP básico con conexión a SQL Server (TLS habilitado)
+Modo solo-lectura por defecto
+Whitelist de tablas por YAML
+Query Guard básico (bloqueo de DROP, DELETE sin WHERE, etc.) + parámetros ligados
+Resolución de credenciales vía variables de entorno / Secrets Manager
+Audit logging a archivo (sin datos sensibles en el contenido)
+README con instrucciones de setup
+Fase 2 — Seguridad y Control (Semanas 3-4)
+Sistema de roles (reader, writer, admin)
+Rate limiting por usuario
+Limitación de filas y paginación
+Stored procedures whitelist
+Docker container
+Fase 3 — Polish y Extensión (Semanas 5-6)
+Tests unitarios + CI básico (cobertura > 80%)
+Comando de estadísticas de uso
+Mejor manejo de errores y mensajes al LLM
+Soporte para múltiples entornos (dev, staging, prod)
+Documentación de arquitectura interna
+11. Métricas de Éxito (KPIs)
+12. Riesgos y Mitigación
+13. Criterios de Aceptación
+El proyecto se considera listo para producción interna cuando:
+Un analista nuevo puede clonar el repo, instalar dependencias y conectar su cliente MCP en < 15 minutos.
+Una consulta SELECT sobre una tabla whitelist se ejecuta y devuelve resultados en < 2s (P95).
+Una consulta DROP TABLE es bloqueada, loggeada y el usuario recibe un mensaje claro de error.
+Un usuario con rol "reader" no puede ejecutar un INSERT aunque lo solicite explícitamente.
+Los logs contienen al menos: timestamp, usuario, query completa, filas afectadas, éxito/error — sin exponer datos de resultado sensibles.
+Ninguna credencial de base de datos existe en texto plano en el repositorio ni en los archivos de configuración versionados.
+El servidor corre estable durante 7 días sin reinicios forzados en el entorno de prueba.
+14. Anexo: Ejemplo de Configuración YAML
+Ejemplo ilustrativo de yhat-mcp-config.yaml — las credenciales se resuelven por variable de entorno, nunca se escriben aquí:
+database:
+  host: ${YHAT_DB_HOST}
+  name: ${YHAT_DB_NAME}
+  encrypt: true
+  password_env: YHAT_DB_PASSWORD
+
+whitelist:
+  - schema: reporting
+    tables: [ventas_mensuales, clientes]
+    mode: read_only
+  - schema: staging
+    tables: [clientes_nuevos]
+    mode: read_write
+
+roles:
+  reader:  { schemas: [reporting] }
+  writer:  { schemas: [reporting, staging] }
+  admin:   { schemas: ["*"], require_confirmation: true }
+
+limits:
+  max_rows: 1000
+  query_timeout_seconds: 30
+  rate_limit_per_minute: 30
+15. Glosario
+16. Historial de Cambios
+Campo | Valor
+Versión | 1.1
+Fecha | 2026-07-09
+Autor | Yhat Team
+Estado | Borrador para revisión
+Audiencia | Equipo de desarrollo y analistas de datos (3-4 personas)
+Clasificación | Uso interno — Yhat (contiene referencias a clientes: NinetyOne, AMCS, EDR, Skandia)
+Opción | Por qué no se eligió
+Data API Builder (DAB) de Microsoft | Expone una API REST/GraphQL genérica sobre la BD; no está diseñado para el flujo conversacional de un LLM ni ofrece Query Guard o RBAC por rol de IA.
+MCP servers de terceros para SQL | Exponen conexión completa a la BD sin whitelist granular ni bloqueo de operaciones destructivas por defecto; no cumplen OB-02.
+Dar acceso directo de SQL Server a la IA vía credenciales de solo lectura | No permite trazabilidad por usuario individual (todas las queries se verían con la misma cuenta de servicio) ni rate limiting.
+ID | Objetivo | Prioridad
+OB-01 | Permitir consultas de datos con IA de forma segura | Alta
+OB-02 | Prevenir modificaciones accidentales en producción | Alta
+OB-03 | Trazar quién consulta qué y cuándo | Media
+OB-04 | Reducir tiempo de onboarding de nuevos analistas | Media
+OB-05 | Mantener la solución operativa con costo de infraestructura mínimo | Media
+ID | Objetivo | Métrica
+OT-01 | Latencia < 2s para consultas simples | P95
+OT-02 | 100% de operaciones destructivas bloqueadas por defecto | Cobertura
+OT-03 | 99.9% uptime del servidor MCP | Disponibilidad
+OT-04 | Setup en < 15 min para un nuevo miembro del equipo | Tiempo
+Rol | Persona(s) | Responsabilidad
+Product Owner | Líder del equipo | Define alcance, prioriza funcionalidades
+Tech Lead | Desarrollador principal | Arquitectura, código, despliegue
+Analistas de Datos | 2-3 personas | Usuarios finales, feedback, validación
+DBA / SysAdmin | (compartido) | Revisión de seguridad de queries, acceso a BD
+ID | Requisito | Prioridad | Notas
+FR-01 | El servidor debe exponer un endpoint MCP estándar (stdio o SSE) | Alta | Compatible con Claude Desktop, Cursor, VS Code
+FR-02 | Debe soportar conexión a SQL Server vía pyodbc / SQLAlchemy | Alta | Incluir autenticación SQL y Windows
+FR-03 | Debe permitir ejecutar consultas SELECT sobre tablas autorizadas | Alta | 
+FR-04 | Debe soportar ejecución de stored procedures pre-aprobados | Media | Lista blanca de SPs
+FR-05 | Debe devolver resultados en formato JSON o markdown tabular | Alta | Para legibilidad por el LLM
+FR-06 | Debe manejar timeouts de consulta (>30s = cancelar) | Alta | Evitar bloqueos
+FR-07 | Debe soportar paginación automática para resultados grandes | Media | LIMIT por defecto
+ID | Requisito | Prioridad | Notas
+FR-08 | Modo solo-lectura por defecto para todos los usuarios | Alta | Bloquear INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE
+FR-09 | Whitelist de esquemas y tablas: solo tablas/vistas explícitamente listadas son visibles | Alta | Configurable por archivo YAML
+FR-10 | Query Guard: validación de SQL antes de ejecutar | Alta | Reglas: no DELETE sin WHERE, no DROP TABLE, no UPDATE sin WHERE
+FR-11 | Limitación de resultados: máximo N filas por consulta (default: 1000) | Alta | Configurable
+FR-12 | Bloqueo de SELECT *: forzar especificación de columnas en tablas grandes | Media | Umbral configurable por número de columnas o filas
+FR-13 | RBAC por usuario: perfiles de acceso (reader, writer, admin) | Media | Mapeado por variable de entorno o config local
+FR-14 | Los usuarios con rol "writer" pueden ejecutar INSERT/UPDATE/DELETE en tablas de staging | Media | Con confirmación explícita del LLM
+FR-15 | Los usuarios con rol "admin" pueden ejecutar cualquier operación pero con logging detallado | Baja | Requiere doble confirmación para DDL/DML fuera de staging
+FR-16 | Rate limiting: máximo X consultas por minuto por usuario | Media | Default: 30/min
+FR-17 | Las credenciales de BD deben leerse desde un gestor de secretos o variables de entorno, nunca desde el YAML de configuración | Alta | Nuevo — cierra el gap de FR-24/NFR-03
+FR-18 | El SQL generado por el LLM debe ejecutarse con parámetros ligados (parameterized queries), nunca por concatenación de strings | Alta | Nuevo — mitiga inyección SQL incluso si el Query Guard tiene un falso negativo
+ID | Requisito | Prioridad | Notas
+FR-19 | Cada consulta debe ser registrada en un archivo de log local | Alta | Timestamp, usuario, query, filas devueltas, éxito/error
+FR-20 | Los logs deben rotar automáticamente (máx. 7 días o 100MB) | Media | 
+FR-21 | Debe existir un endpoint/resumen para ver estadísticas de uso | Baja | "Cuántas queries hizo cada uno esta semana"
+FR-22 | Las queries bloqueadas deben loggearse con nivel WARN | Alta | 
+FR-23 | Los logs no deben contener valores de columnas sensibles en texto plano (PII, montos de clientes) | Media | Nuevo — enmascarar o loggear solo metadatos de la query, no el resultado completo
+ID | Requisito | Prioridad | Notas
+FR-24 | Configuración vía archivo YAML (yhat-mcp-config.yaml) | Alta | Tablas permitidas, roles, conexión BD (sin secretos)
+FR-25 | Debe poder ejecutarse localmente (python -m yhat_mcp) | Alta | Sin Docker obligatorio
+FR-26 | Debe poder ejecutarse con Docker para entornos estandarizados | Media | 
+FR-27 | Debe soportar variables de entorno para credenciales sensibles | Alta | YHAT_DB_PASSWORD, YHAT_USER_ROLE
+FR-28 | Script de setup automático para nuevos miembros del equipo | Media | make install o similar
+ID | Requisito | Prioridad
+NFR-01 | El servidor debe iniciar en < 3 segundos | Alta
+NFR-02 | Consumo de memoria < 128MB en reposo | Alta
+NFR-03 | Código alojado en repositorio privado de Yhat (uso interno, no open source público) | Alta
+NFR-04 | Documentación de setup en README (español) | Alta
+NFR-05 | Tests unitarios con cobertura > 80% | Media
+NFR-06 | Compatible con Python 3.10+ | Alta
+NFR-07 | Sin dependencias de servicios cloud (AWS/Azure/GCP) obligatorias | Alta
+NFR-08 | Logs legibles por humanos (no solo JSON) | Media
+NFR-09 | Conexión a SQL Server cifrada en tránsito (TLS/Encrypt=yes) | Alta
+NFR-10 | Ningún secreto (password, connection string) debe quedar en texto plano en el repositorio ni en los logs | Alta
+Nota: NFR-03 se corrigió respecto a la versión anterior: el documento original pedía código "100% open source" alojado en un repositorio privado, lo cual es contradictorio. Se asume que la intención era "uso interno", a confirmar con el Product Owner.
+Control | Cómo se cumple
+Gestión de secretos | Credenciales nunca en el YAML ni en el repositorio; se leen de variables de entorno o de un gestor de secretos (p. ej. AWS Secrets Manager, ya usado en la infraestructura de Yhat).
+Cifrado en tránsito | Conexión a SQL Server con TLS habilitado (Encrypt=yes, TrustServerCertificate según entorno).
+Mínimo privilegio | La cuenta de servicio que usa el MCP tiene únicamente permisos GRANT SELECT sobre la whitelist, y GRANT INSERT/UPDATE/DELETE solo sobre el esquema staging.
+Prevención de inyección SQL | Toda ejecución usa parámetros ligados (parameterized queries); el Query Guard es una segunda capa, no la única defensa.
+Minimización de datos en logs | Los logs registran metadatos de la query (usuario, tabla, filas afectadas, duración), no el contenido de los resultados.
+Separación de entornos | Whitelists y roles distintos por entorno (dev/staging/prod); por defecto el MCP apunta a una réplica de solo lectura cuando exista.
+Capa | Tecnología | Justificación
+Lenguaje | Python 3.10+ | Dominio del equipo, ecosistema de datos maduro
+SDK MCP | mcp (oficial de Anthropic) | Estándar, bien documentado, activo
+Conexión BD | pyodbc + SQLAlchemy | Estándar para SQL Server en Python
+Configuración | PyYAML + Pydantic | Validación de tipos + YAML legible
+Secretos | Variables de entorno / AWS Secrets Manager | Evita credenciales en texto plano en el repo
+Logging | Python logging + loguru | Rotación, formato, niveles
+Testing | pytest + pytest-asyncio | Tests async nativos
+Empaquetado | uv / pip | uv para velocidad, pip como fallback
+Contenerización | Docker (opcional) | Reproducibilidad entre máquinas
+Métrica | Target | Cómo medir
+Tiempo de setup para nuevo miembro | < 15 min | Cronometrado
+Consultas bloqueadas por seguridad | 100% de las destructivas | Logs
+Latencia P95 de consultas simples | < 2s | Logs
+Uptime del servidor | > 99% | Monitoreo manual (Fase 1) / alertas (Fase 2+)
+Satisfacción del equipo (encuesta) | > 4/5 | Encuesta interna post-Fase 2
+Incidentes de seguridad relacionados | 0 | Registro de incidentes
+Secretos expuestos en repo o logs | 0 | Revisión de código + escaneo automático (nuevo)
+Riesgo | Prob. | Impacto | Mitigación
+El MCP expone más schema del debido | Media | Alto | Whitelist estricta + revisión de DBA
+La IA genera SQL ineficiente que bloquea la BD | Alta | Medio | Timeout de 30s + LIMIT automático
+Un miembro del equipo comparte credenciales | Baja | Alto | Variables de entorno / Secrets Manager, nunca hardcodear
+El proyecto se abandona por falta de tiempo | Media | Medio | MVP en 2 semanas, alcance reducido
+Incompatibilidad con futuras versiones del SDK MCP | Media | Medio | Pin de versión + revisión mensual
+Inyección SQL vía texto generado por el LLM | Media | Alto | Parámetros ligados (FR-18) + Query Guard como segunda capa
+Fuga de datos sensibles a través de los logs | Media | Alto | Logs de metadatos, no de resultados; enmascarado de PII (FR-23)
+Término | Definición
+MCP | Model Context Protocol — protocolo estándar para conectar LLMs con fuentes de datos y herramientas.
+Query Guard | Componente de validación de SQL que aplica reglas de seguridad antes de ejecutar.
+Whitelist | Lista explícita de elementos permitidos (tablas, esquemas, stored procedures).
+RBAC | Role-Based Access Control — control de acceso basado en roles de usuario.
+Parameterized query / parámetros ligados | Técnica que separa el SQL de los datos de entrada, evitando inyección SQL.
+DAB (Data API Builder) | Herramienta de Microsoft para exponer APIs sobre bases de datos; evaluada y descartada como alternativa (ver sección 1.4).
+pyodbc | Driver ODBC para Python, estándar para conectar con SQL Server.
+Versión | Fecha | Autor | Cambios
+1.0 | 2026-07-09 | Yhat Team | Documento inicial
+1.1 | 2026-07-09 | Yhat Team | Revisión de mejora:
+• Se corrige contradicción en NFR-03 (open source vs. repo privado).
+• Se corrige el formato roto de FR-12.
+• Se agregan FR-17, FR-18, FR-23 sobre gestión de secretos, parámetros ligados y minimización de datos en logs.
+• Se agregan NFR-09 y NFR-10 sobre cifrado en tránsito y secretos.
+• Se agregan secciones 1.3 (Alcance/No-Objetivos), 1.4 (Alternativas Consideradas), 7 (Seguridad y Cumplimiento) y 14 (Anexo de configuración).
+• Se agrega UC-05 (intento de inyección SQL).
+• Se corrige inconsistencia de numeración de FR entre secciones.

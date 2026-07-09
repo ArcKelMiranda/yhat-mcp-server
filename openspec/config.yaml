@@ -1,0 +1,50 @@
+schema: spec-driven
+
+project:
+  name: MCP_SQLServer
+  display_name: Yhat MCP Server
+  language: python
+  runtime: python 3.10+
+  framework: mcp (Anthropic official SDK)
+  package_manager: uv / pip
+  architecture: mcp-server-stdio-sse
+
+context: |
+  Python 3.10+ MCP server for secure, auditable SQL Server access.
+  Uses Anthropic mcp SDK, pyodbc/SQLAlchemy, Pydantic, PyYAML.
+  Query Guard + RBAC + Audit Logger layered architecture.
+  No implementation yet; project is at PRD stage.
+
+strict_tdd: false
+
+rules:
+  proposal:
+    - Align with PRD v1.1 scope and non-objectives
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    follow_existing_patterns: true
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 80
+  archive:
+    - Warn before merging destructive deltas
+
+testing:
+  runner: pytest
+  async_runner: pytest-asyncio
+  coverage_tool: pytest-cov
+  coverage_threshold: 80
+  strict_tdd: false
+  available: false
+  notes: Test runner and project code not yet initialized. PRD plans pytest + pytest-asyncio.
