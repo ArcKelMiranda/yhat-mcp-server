@@ -7,3 +7,6 @@ logs/
 .DS_Store
 .atl/
 *.log
+releases/
+*.zip
+*.tar.gz

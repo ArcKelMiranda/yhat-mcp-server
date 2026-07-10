@@ -1,0 +1,37 @@
+{
+  "name": "yhat-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "yhat-mcp": "./dist/cli.cjs"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "build:cli": "tsup",
+    "test": "node --import tsx --test tests",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "cli": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0-beta.3",
+    "dotenv": "^17.4.2",
+    "js-yaml": "^4.1.0",
+    "keytar": "^7.9.0",
+    "mssql": "^12.1.0",
+    "node-sql-parser": "^5.3.13",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^22.13.10",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,33 @@
+server:
+  name: yhat-mcp-server
+  transport: stdio
+database:
+  host: ${YHAT_DB_HOST}
+  port: 1433
+  name: ${YHAT_DB_NAME}
+  user: ${YHAT_DB_USER}
+  passwordEnv: YHAT_DB_PASSWORD
+  encrypt: true
+  trustServerCertificate: true
+whitelist:
+  - schema: SDK
+    tables:
+      - ApiObject
+      - Clientes
+      - DriveItem
+      - MailMessage
+    mode: read_only
+  - schema: dbo
+    tables:
+      - FACodes
+    mode: read_only
+limits:
+  maxRows: 1000
+  queryTimeoutSeconds: 30
+  largeTableColumnThreshold: 25
+  largeTableRowThreshold: 100000
+audit:
+  logDir: logs
+  maxSizeMb: 50
+  maxAgeDays: 30
+  logLevel: info

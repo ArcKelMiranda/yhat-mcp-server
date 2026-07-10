@@ -27,19 +27,19 @@ Chain strategy: pending
 
 ## Phase 1: Foundation
 
-- [ ] 1.1 Create `package.json`, `tsconfig.json`, and base folders (`src/`, `config/`, `tests/`) with `dev`, `build`, `test`, and `lint` scripts.
-- [ ] 1.2 Add `src/index.ts`, `src/types.ts`, and a minimal `src/server.ts` scaffold that compiles and shuts down cleanly.
+- [x] 1.1 Create `package.json`, `tsconfig.json`, and base folders (`src/`, `config/`, `tests/`) with `dev`, `build`, `test`, and `lint` scripts.
+- [x] 1.2 Add `src/index.ts`, `src/types.ts`, and a minimal `src/server.ts` scaffold that compiles and shuts down cleanly.
 
 ## Phase 2: Config + Query Security
 
-- [ ] 2.1 Implement `src/config.ts` with YAML parsing, `${VAR}` env interpolation, and Zod 4 validation; add `config/yhat-mcp-config.yaml`.
-- [ ] 2.2 Implement `src/validator.ts`, `src/whitelist.ts`, and `src/row-limit.ts` for AST-based SELECT-only checks, whitelist enforcement, and SELECT-only row caps/warnings.
+- [x] 2.1 Implement `src/config.ts` with YAML parsing, `${VAR}` env interpolation, and Zod 4 validation; add `config/yhat-mcp-config.yaml`.
+- [x] 2.2 Implement `src/validator.ts`, `src/whitelist.ts`, and `src/row-limit.ts` for AST-based SELECT-only checks, whitelist enforcement, and SELECT-only row caps/warnings.
 
 ## Phase 3: DB + Audit + MCP Wiring
 
-- [ ] 3.1 Implement `src/database.ts` for `mssql` pool lifecycle and parameterized SELECT execution with shaped results.
-- [ ] 3.2 Implement `src/audit.ts` for metadata-only logs, redaction, rotation settings, and usage-metric hooks.
-- [ ] 3.3 Wire `src/server.ts` tool registration/routing and graceful shutdown across config, guard, whitelist, DB, and audit.
+- [x] 3.1 Implement `src/database.ts` for `mssql` pool lifecycle and parameterized SELECT execution with shaped results.
+- [x] 3.2 Implement `src/audit.ts` for metadata-only logs, redaction, rotation settings, and usage-metric hooks.
+- [x] 3.3 Wire `src/server.ts` tool registration/routing and graceful shutdown across config, guard, whitelist, DB, and audit.
 
 ## Phase 4: Tests + Docs
 
