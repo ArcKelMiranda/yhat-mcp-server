@@ -19,7 +19,33 @@ whitelist:
     mode: read_only
   - schema: dbo
     tables:
+      - FA
       - FACodes
+      - FACodesBranchRep
+      - FACodesBranchRepVariant
+      - FACodesFact
+      - Agentes
+      - Codes
+      - Countries
+      - Regions
+      - Offices
+      - Origins
+      - IBD
+      - FAxCodes
+      - CodeOrigins
+      - FACodes_Backup
+      - FACodes_SyncAudit
+      - stg_FACodes
+      - stg_FAid
+      - stg_FAid_BranchRep
+      - vw_FACodes_Compat
+      - vw_FACodes_Normalized
+    mode: read_only
+  - schema: sys
+    tables:
+      - tables
+      - procedures
+      - columns
     mode: read_only
 limits:
   maxRows: 1000
