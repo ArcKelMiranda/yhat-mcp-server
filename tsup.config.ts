@@ -6,7 +6,7 @@ export default defineConfig({
   platform: "node",
   outDir: "dist",
   target: "node20",
-  noExternal: ["mssql", "js-yaml", "dotenv"],
+  noExternal: ["@modelcontextprotocol/server", "mssql", "js-yaml", "dotenv"],
   bundle: true,
   sourcemap: true,
   clean: false,

@@ -16,7 +16,7 @@ describe("package metadata", () => {
     ok(pkg.files?.includes("dist") ?? false);
   });
 
-  it("bundles dotenv and keeps keytar external", () => {
+  it("bundles the MCP server runtime and keeps keytar external", () => {
     const config = tsupConfig as {
       entry: string[];
       noExternal?: string[];
@@ -24,6 +24,7 @@ describe("package metadata", () => {
 
     deepStrictEqual(config.entry, ["src/cli.ts"]);
     ok(Array.isArray(config.noExternal));
+    ok(config.noExternal?.includes("@modelcontextprotocol/server") ?? false);
     ok(config.noExternal?.includes("dotenv") ?? false);
     ok(!(config.noExternal?.includes("keytar") ?? false));
   });
