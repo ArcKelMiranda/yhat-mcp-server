@@ -12,13 +12,6 @@ Este servidor resuelve eso con una arquitectura distribuida (cada usuario ejecut
 
 Requiere Node.js 20+.
 
-### Desde npm (recomendado)
-
-```bash
-npm install -g @yhat/mcp-server
-yhat-mcp setup
-```
-
 La configuración estable vive fuera del working tree:
 
 - Linux / macOS: `~/.local/share/yhat-mcp`
@@ -26,29 +19,29 @@ La configuración estable vive fuera del working tree:
 
 Podés sobrescribir esa raíz con `YHAT_CONFIG_ROOT`.
 
-### Windows — instalador PowerShell
+### Desde GitHub Releases (recomendado)
 
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
-
-### Linux / macOS — instalador bash
-
-```bash
-bash install.sh
-```
-
-### Desde el release
-
-Descargá el zip correspondiente a tu plataforma desde [GitHub Releases](https://github.com/ArcKelMiranda/yhat-mcp-server/releases), extraelo y ejecutá:
+Los instaladores descargan el source archive de la última release, compilan el bundle en un directorio temporal y copian el resultado a la carpeta estable del usuario.
 
 ```bash
 # Linux/macOS
-./yhat-mcp setup
+curl -fsSL https://raw.githubusercontent.com/ArcKelMiranda/yhat-mcp-server/main/install.sh | bash
 
 # Windows
-yhat-mcp.exe setup
+irm https://raw.githubusercontent.com/ArcKelMiranda/yhat-mcp-server/main/install.ps1 | iex
 ```
+
+Para fijar una versión específica:
+
+```bash
+YHAT_RELEASE_TAG=v0.2.0 bash install.sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -ReleaseTag v0.2.0
+```
+
+> Nota: el paquete npm es interno/privado; la vía soportada para usuarios finales es GitHub Releases.
 
 `yhat-mcp install` registra OpenCode con una entrada portátil y sin secretos:
 
