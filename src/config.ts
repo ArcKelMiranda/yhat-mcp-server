@@ -1,23 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
 
 import { load as loadYaml } from "js-yaml";
 import { z } from "zod";
 
 import { ACCESS_MODE, TRANSPORT, type Config } from "./types.js";
-
-function getInstallDir(): string {
-  const path = process.argv[1];
-  if (path) {
-    return join(dirname(path), "..");
-  }
-  if (process.platform === "win32") {
-    return process.env.LOCALAPPDATA ?? join(process.env.APPDATA ?? "", "yhat-mcp");
-  }
-  return join(process.env.HOME ?? "", ".local", "share", "yhat-mcp");
-}
-
-export const DEFAULT_CONFIG_PATH = join(getInstallDir(), "config", "yhat-mcp-config.yaml");
+import { DEFAULT_CONFIG_PATH, getConfigRoot, resolveAuditLogDir } from "./paths.js";
 
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const ENV_TOKEN_PATTERN = /^\$\{([A-Z_][A-Z0-9_]*)\}$/;
@@ -33,7 +20,7 @@ const serverConfigSchema = z
 const databaseConfigSchema = z
   .object({
     host: z.string({ error: "database.host is required" }).min(1),
-    port: z.number({ error: "database.port is required" }).int().positive().max(65535),
+    port: z.coerce.number({ error: "database.port is required" }).int().positive().max(65535),
     name: z.string({ error: "database.name is required" }).min(1),
     user: z.string({ error: "database.user is required" }).min(1),
     passwordEnv: z
@@ -41,7 +28,7 @@ const databaseConfigSchema = z
       .min(1)
       .regex(ENV_NAME_PATTERN, { error: "database.passwordEnv must be an environment variable name" }),
     encrypt: z.boolean().default(true),
-    trustServerCertificate: z.boolean().optional(),
+    trustServerCertificate: z.coerce.boolean().optional(),
   })
   .strict();
 
@@ -122,7 +109,11 @@ const configSchema = z
   })
   .strict();
 
-export async function loadConfigFile(configPath: string, env: NodeJS.ProcessEnv = process.env): Promise<Config> {
+export async function loadConfigFile(
+  configPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+  configRoot: string = getConfigRoot(env),
+): Promise<Config> {
   let fileContent: string;
 
   try {
@@ -148,7 +139,13 @@ export async function loadConfigFile(configPath: string, env: NodeJS.ProcessEnv 
     throw new Error(`Invalid configuration: ${formatConfigValidationError(error)}`, { cause: error });
   }
 
-  return validatedDocument;
+  return {
+    ...validatedDocument,
+    audit: {
+      ...validatedDocument.audit,
+      logDir: resolveAuditLogDir(validatedDocument.audit.logDir, configRoot),
+    },
+  };
 }
 
 export function interpolateNode(value: unknown, env: NodeJS.ProcessEnv, path: readonly string[]): unknown {

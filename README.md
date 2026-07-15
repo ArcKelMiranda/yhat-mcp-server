@@ -19,6 +19,13 @@ npm install -g @yhat/mcp-server
 yhat-mcp setup
 ```
 
+La configuración estable vive fuera del working tree:
+
+- Linux / macOS: `~/.local/share/yhat-mcp`
+- Windows: `%LOCALAPPDATA%\yhat-mcp`
+
+Podés sobrescribir esa raíz con `YHAT_CONFIG_ROOT`.
+
 ### Windows — instalador PowerShell
 
 ```powershell
@@ -43,9 +50,15 @@ Descargá el zip correspondiente a tu plataforma desde [GitHub Releases](https:/
 yhat-mcp.exe setup
 ```
 
+`yhat-mcp install` registra OpenCode con una entrada portátil y sin secretos:
+
+```json
+{"type":"local","command":["yhat-mcp","start"]}
+```
+
 ## Primeros pasos
 
-El CLI tiene un asistente interactivo que te guía por toda la configuración:
+El CLI tiene un asistente interactivo que te guía por toda la configuración y escribe en la carpeta estable del usuario:
 
 ```bash
 yhat-mcp setup
@@ -58,7 +71,7 @@ El wizard te va a pedir:
 3. **Token de GitHub** — opcional, para recibir actualizaciones automáticas
 4. **Instalación en OpenCode** — crea la entrada MCP automáticamente
 
-La contraseña de la base de datos se almacena en el keychain del SO (Windows Credential Manager, macOS Keychain, libsecret en Linux). Nunca queda en texto plano.
+La contraseña de la base de datos se almacena en el keychain del SO (Windows Credential Manager, macOS Keychain, libsecret en Linux). La `.env` estable no guarda `YHAT_DB_PASSWORD`.
 
 ## Comandos CLI
 
@@ -123,7 +136,7 @@ La contraseña de la base de datos se almacena en el keychain del SO (Windows Cr
 - **Contraseña de BD**: se almacena en el keychain del sistema operativo vía `keytar`
 - **Token de GitHub**: mismo mecanismo, opcional para auto-updates
 - **.env**: solo contiene valores no sensibles (host, puerto, nombre de BD, usuario)
-- **OpenCode config**: referencia las variables de entorno con sintaxis `${VAR}`, nunca valores reales
+- **OpenCode config**: usa `{"type":"local","command":["yhat-mcp","start"]}`; nunca incluye secretos ni rutas del source
 
 ### Control de acceso
 
@@ -134,11 +147,16 @@ La contraseña de la base de datos se almacena en el keychain del SO (Windows Cr
 
 ### Auditoría
 
-Cada consulta ejecutada queda registrada (solo metadata: timestamp, usuario, tablas consultadas, filas devueltas, duración). No se registra el contenido de los resultados ni datos sensibles.
+Cada consulta ejecutada queda registrada como metadata y SQL redacted/normalizado: timestamp, usuario, tablas consultadas, filas devueltas, duración y una versión sanitizada de la consulta. No se registran literales sensibles ni resultados.
 
 ## Configuración
 
-El archivo de configuración vive en `config/yhat-mcp-config.yaml`:
+El archivo de configuración vive en la carpeta estable del usuario:
+
+- Linux / macOS: `~/.local/share/yhat-mcp/config/yhat-mcp-config.yaml`
+- Windows: `%LOCALAPPDATA%\yhat-mcp\config\yhat-mcp-config.yaml`
+
+Si necesitás otra raíz, definí `YHAT_CONFIG_ROOT`.
 
 ```yaml
 server:

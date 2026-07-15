@@ -1,8 +1,6 @@
 import process from "node:process";
 
-import "dotenv/config";
-
-import { createServer } from "./server.js";
+import { prepareRuntimeEnvironment } from "./runtime.js";
 
 function formatError(error: unknown): string {
   if (error instanceof Error) {
@@ -13,6 +11,9 @@ function formatError(error: unknown): string {
 }
 
 async function main(): Promise<void> {
+  prepareRuntimeEnvironment();
+
+  const { createServer } = await import("./server.js");
   const server = createServer();
 
   await server.start();

@@ -9,10 +9,14 @@
   "bin": {
     "yhat-mcp": "./dist/cli.cjs"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "pretest": "node scripts/no-test-only.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "build:cli": "tsup",
+    "build:cli": "tsup && node scripts/prune-dist.mjs",
     "test": "node --import tsx --test tests",
     "lint": "tsc -p tsconfig.json --noEmit",
     "cli": "tsx src/cli.ts"

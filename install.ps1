@@ -30,24 +30,31 @@ Write-Host "[...] Copying files..." -ForegroundColor Yellow
 # Copy dist files
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $distDir = Join-Path $scriptDir "dist"
-$cliDest = Join-Path $InstallPath "cli.js"
+$cliSource = Join-Path $scriptDir "dist\cli.cjs"
+$cliDest = Join-Path $InstallPath "cli.cjs"
+$keytarSource = Join-Path $scriptDir "node_modules\keytar"
+$keytarDest = Join-Path $InstallPath "node_modules\keytar"
 
 if (-not (Test-Path $distDir)) {
-    Write-Host "[ERROR] dist/cli.js not found. Run 'npm run build:cli' first." -ForegroundColor Red
+    Write-Host "[ERROR] dist/cli.cjs not found. Run 'npm run build:cli' first." -ForegroundColor Red
     exit 1
 }
 
-Copy-Item "$distDir\cli.js" $cliDest -Force
-Copy-Item "$distDir\cli.js.map" $InstallPath -Force -ErrorAction SilentlyContinue
+Copy-Item $cliSource $cliDest -Force
+Copy-Item (Join-Path $scriptDir "dist\cli.cjs.map") $InstallPath -Force -ErrorAction SilentlyContinue
 
-# Write version file
-$pkgVersion = "0.1.0"
-$pkgPath = Join-Path $scriptDir "package.json"
-if (Test-Path $pkgPath) {
-    $pkgContent = Get-Content $pkgPath -Raw | ConvertFrom-Json
-    $pkgVersion = $pkgContent.version
+if (Test-Path $keytarSource) {
+    New-Item -ItemType Directory -Path (Split-Path $keytarDest -Parent) -Force | Out-Null
+    Copy-Item $keytarSource $keytarDest -Recurse -Force
+} else {
+    Write-Host "[WARN] keytar bindings not found; falling back to YHAT_DB_PASSWORD if set." -ForegroundColor Yellow
 }
-Set-Content -Path (Join-Path $InstallPath "version.txt") -Value $pkgVersion -NoNewline
+
+$launcher = Join-Path $InstallPath "yhat-mcp.cmd"
+@"
+@echo off
+node "%~dp0cli.cjs" %*
+"@ | Set-Content -Path $launcher -NoNewline
 
 Write-Host "[OK] Files copied to $InstallPath" -ForegroundColor Green
 

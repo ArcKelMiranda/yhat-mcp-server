@@ -45,7 +45,7 @@ export function createAuditLogger(config: AuditConfig): AuditLogger {
 function sanitizeAuditEntry(entry: AuditEntry): AuditEntry {
   const sanitized: AuditEntry = {
     ...entry,
-    queryText: redactSensitiveText(entry.queryText),
+    queryText: redactSqlText(entry.queryText),
   };
 
   if (entry.clientInfo !== undefined) {
@@ -67,6 +67,15 @@ function redactSensitiveText(text: string): string {
   return text
     .replace(/(password|passwd|pwd|secret|token|connection\s*string)\s*[:=]\s*([^\s;]+)/gi, "$1=[REDACTED]")
     .replace(/(YHAT_[A-Z0-9_]*PASSWORD|YHAT_[A-Z0-9_]*TOKEN)/g, "[REDACTED]");
+}
+
+function redactSqlText(sql: string): string {
+  return sql
+    .replace(/'(?:''|[^'])*'/g, "'?'" )
+    .replace(/\b\d+(?:\.\d+)?\b/g, "?")
+    .replace(/--.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim();
 }
 
 async function ensureLogDirectory(logDir: string): Promise<void> {
