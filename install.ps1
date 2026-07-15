@@ -10,15 +10,112 @@ param(
 $ErrorActionPreference = "Stop"
 $releaseTagValue = if ($ReleaseTag) { $ReleaseTag } elseif ($env:YHAT_RELEASE_TAG) { $env:YHAT_RELEASE_TAG } else { $null }
 
+function Get-NodeVersion {
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) {
+        return $null
+    }
+
+    try {
+        $rawVersion = & node --version 2>$null
+    } catch {
+        return $null
+    }
+
+    if ($rawVersion -match '^v(\d+)\.(\d+)\.(\d+)$') {
+        return [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])"
+    }
+
+    return $null
+}
+
+function Ensure-NodeVersion {
+    param(
+        [version]$Version
+    )
+
+    if (-not $Version) {
+        return
+    }
+
+    if ($Version.Major -lt 20) {
+        throw "Node.js $Version is installed, but Node.js 20+ is required. Upgrade Node.js and rerun the installer."
+    }
+}
+
+function Get-NodeInstallCandidates {
+    $candidates = @()
+
+    if ($env:ProgramFiles) {
+        $candidates += (Join-Path $env:ProgramFiles "nodejs\node.exe")
+    }
+
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} "nodejs\node.exe")
+    }
+
+    return $candidates | Where-Object { $_ -and (Test-Path $_) }
+}
+
+function Install-NodeViaWinget {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "Node.js 20+ is required but missing. winget was not found, so automatic installation is unavailable on Windows. Install Node.js 20+ from https://nodejs.org or enable winget and rerun the installer."
+    }
+
+    Write-Host "[...] Node.js is missing; bootstrapping Node.js 20+ via winget..." -ForegroundColor Yellow
+
+    & winget install -e --id OpenJS.NodeJS.LTS --accept-package-agreements --accept-source-agreements --silent
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget could not install Node.js automatically. Install Node.js 20+ from https://nodejs.org or rerun after winget is repaired."
+    }
+
+    foreach ($candidate in Get-NodeInstallCandidates) {
+        $candidateDir = Split-Path $candidate -Parent
+        if ($env:Path -notlike "*$candidateDir*") {
+            $env:Path = "$candidateDir;$env:Path"
+        }
+    }
+}
+
+function Ensure-NodeRuntime {
+    $nodeVersion = Get-NodeVersion
+    if ($nodeVersion) {
+        Ensure-NodeVersion -Version $nodeVersion
+        return
+    }
+
+    Install-NodeViaWinget
+
+    $nodeVersion = Get-NodeVersion
+    if (-not $nodeVersion) {
+        foreach ($candidate in Get-NodeInstallCandidates) {
+            $candidateDir = Split-Path $candidate -Parent
+            if ($env:Path -notlike "*$candidateDir*") {
+                $env:Path = "$candidateDir;$env:Path"
+            }
+        }
+
+        $nodeVersion = Get-NodeVersion
+    }
+
+    if (-not $nodeVersion) {
+        throw "winget finished, but Node.js is still unavailable from this shell. Close and reopen PowerShell, then rerun the installer."
+    }
+
+    Ensure-NodeVersion -Version $nodeVersion
+}
+
 Write-Host "=== yhat-mcp Windows Installer ===" -ForegroundColor Cyan
 Write-Host ""
 
-# Check Node.js
+# Check Node.js or bootstrap it when missing
 try {
+    Ensure-NodeRuntime
     $nodeVersion = node --version 2>$null
     Write-Host "[OK] Node.js found: $nodeVersion" -ForegroundColor Green
 } catch {
-    Write-Host "[ERROR] Node.js is not installed. Please install Node.js 20+ from https://nodejs.org" -ForegroundColor Red
+    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 

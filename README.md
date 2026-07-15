@@ -12,6 +12,14 @@ Este servidor resuelve eso con una arquitectura distribuida (cada usuario ejecut
 
 Requiere Node.js 20+.
 
+Si no tenés Node instalado, los instaladores intentan bootstrapping automático antes de continuar con la instalación desde GitHub Releases:
+
+- **Linux**: detectan sistemas apt-based y usan NodeSource cuando pueden; si no hay root/sudo o no hay un gestor compatible, muestran una instrucción manual clara.
+- **macOS**: usan Homebrew si está disponible; si no, piden instalar Node manualmente desde el sitio oficial.
+- **Windows**: usan `winget` si está disponible; si no, piden instalar Node manualmente desde el sitio oficial.
+
+Si Node ya está presente, el instalador sigue con el flujo normal de release.
+
 La configuración estable vive fuera del working tree:
 
 - Linux / macOS: `~/.local/share/yhat-mcp`

@@ -11,6 +11,176 @@ BIN_NAME="yhat-mcp"
 RELEASE_TAG="${YHAT_RELEASE_TAG:-}"
 TMP_ROOT=""
 
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+die() {
+    printf '[ERROR] %s\n' "$1" >&2
+    exit 1
+}
+
+python_cmd() {
+    if command_exists python3; then
+        printf '%s\n' python3
+        return 0
+    fi
+
+    if command_exists python; then
+        printf '%s\n' python
+        return 0
+    fi
+
+    return 1
+}
+
+json_field() {
+    local field="$1"
+    local py=""
+
+    if ! py="$(python_cmd)"; then
+        die "python3 is required to parse GitHub release metadata. Install Python 3 and rerun the installer."
+    fi
+
+    RELEASE_JSON_INPUT="${RELEASE_JSON}" "$py" -c 'import json, os, sys; field = sys.argv[1]; data = json.loads(os.environ["RELEASE_JSON_INPUT"]); value = data[field]; sys.stdout.write(value if isinstance(value, str) else str(value))' "$field"
+}
+
+node_major_version() {
+    local node_version="${1#v}"
+    printf '%s\n' "${node_version%%.*}"
+}
+
+ensure_node_version() {
+    local node_version="${1:-}"
+    local node_major=""
+
+    node_major="$(node_major_version "${node_version}")"
+
+    if [ "${node_major}" -lt 20 ]; then
+        die "Node.js ${node_version} is installed, but Node.js 20+ is required. Upgrade Node.js and rerun the installer."
+    fi
+}
+
+bootstrap_node_apt() {
+    echo "[...] Node.js is missing; bootstrapping Node.js 20+ via apt and NodeSource..."
+
+    if [ "$(id -u)" -eq 0 ]; then
+        apt-get update
+        apt-get install -y ca-certificates curl gnupg
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+        return 0
+    fi
+
+    if ! command_exists sudo; then
+        die "Node.js 20+ is required but missing. This apt-based system needs root or sudo to install it automatically. Install Node.js 20+ manually (for example via NodeSource or your distro package manager) and rerun the installer."
+    fi
+
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl gnupg
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+}
+
+bootstrap_node_dnf() {
+    echo "[...] Node.js is missing; bootstrapping Node.js 20+ via dnf..."
+
+    if [ "$(id -u)" -eq 0 ]; then
+        dnf install -y nodejs
+        return 0
+    fi
+
+    if ! command_exists sudo; then
+        die "Node.js 20+ is required but missing. This Linux system needs root or sudo to install Node.js automatically. Install Node.js 20+ manually and rerun the installer."
+    fi
+
+    sudo dnf install -y nodejs
+}
+
+bootstrap_node_yum() {
+    echo "[...] Node.js is missing; bootstrapping Node.js 20+ via yum..."
+
+    if [ "$(id -u)" -eq 0 ]; then
+        yum install -y nodejs
+        return 0
+    fi
+
+    if ! command_exists sudo; then
+        die "Node.js 20+ is required but missing. This Linux system needs root or sudo to install Node.js automatically. Install Node.js 20+ manually and rerun the installer."
+    fi
+
+    sudo yum install -y nodejs
+}
+
+bootstrap_node_pacman() {
+    echo "[...] Node.js is missing; bootstrapping Node.js 20+ via pacman..."
+
+    if [ "$(id -u)" -eq 0 ]; then
+        pacman -Sy --noconfirm nodejs npm
+        return 0
+    fi
+
+    if ! command_exists sudo; then
+        die "Node.js 20+ is required but missing. This Linux system needs root or sudo to install Node.js automatically. Install Node.js 20+ manually and rerun the installer."
+    fi
+
+    sudo pacman -Sy --noconfirm nodejs npm
+}
+
+ensure_node_linux() {
+    local node_version=""
+
+    if command_exists node; then
+        node_version="$(node --version)"
+        ensure_node_version "${node_version}"
+        return 0
+    fi
+
+    if command_exists apt-get; then
+        bootstrap_node_apt
+    elif command_exists dnf; then
+        bootstrap_node_dnf
+    elif command_exists yum; then
+        bootstrap_node_yum
+    elif command_exists pacman; then
+        bootstrap_node_pacman
+    else
+        die "Node.js 20+ is required but missing, and no supported Linux package manager was found. Install Node.js 20+ manually from https://nodejs.org or using your distro's package manager, then rerun the installer."
+    fi
+
+    if ! command_exists node; then
+        die "Automatic Node.js installation completed, but node is still unavailable in this shell. Restart your terminal, then rerun the installer."
+    fi
+
+    node_version="$(node --version)"
+    ensure_node_version "${node_version}"
+}
+
+ensure_node_macos() {
+    local node_version=""
+
+    if command_exists node; then
+        node_version="$(node --version)"
+        ensure_node_version "${node_version}"
+        return 0
+    fi
+
+    if ! command_exists brew; then
+        die "Node.js 20+ is required but missing. Homebrew was not found, so automatic installation is unavailable on macOS. Install Node.js 20+ from https://nodejs.org or install Homebrew and rerun the installer."
+    fi
+
+    echo "[...] Node.js is missing; bootstrapping Node.js 20+ via Homebrew..."
+    brew update
+    brew install node
+
+    if ! command_exists node; then
+        die "Homebrew finished, but node is still unavailable in this shell. Restart your terminal, then rerun the installer."
+    fi
+
+    node_version="$(node --version)"
+    ensure_node_version "${node_version}"
+}
+
 cleanup() {
     if [ -n "${TMP_ROOT}" ] && [ -d "${TMP_ROOT}" ]; then
         rm -rf "${TMP_ROOT}"
@@ -49,13 +219,25 @@ extract_release_root() {
 echo "=== yhat-mcp Installer ==="
 echo ""
 
-# Check Node.js
-if ! command -v node &> /dev/null; then
-    echo "[ERROR] Node.js is not installed. Please install Node.js 20+ from https://nodejs.org"
-    exit 1
-fi
+# Check Node.js or bootstrap it when missing
+case "$(uname -s)" in
+    Darwin)
+        ensure_node_macos
+        ;;
+    Linux)
+        ensure_node_linux
+        ;;
+    *)
+        if ! command_exists node; then
+            die "Node.js 20+ is required but missing. Install Node.js 20+ from https://nodejs.org and rerun the installer."
+        fi
 
-NODE_VERSION=$(node --version)
+        NODE_VERSION="$(node --version)"
+        ensure_node_version "${NODE_VERSION}"
+        ;;
+esac
+
+NODE_VERSION="$(node --version)"
 echo "[OK] Node.js found: ${NODE_VERSION}"
 
 # Check npm
@@ -72,8 +254,8 @@ mkdir -p "${EXTRACT_DIR}"
 echo ""
 echo "[...] Resolving release archive from GitHub Releases..."
 RELEASE_JSON="$(get_release_json)"
-RELEASE_TAG_RESOLVED="$(printf '%s' "${RELEASE_JSON}" | node -e 'const fs = require("node:fs"); const data = JSON.parse(fs.readFileSync(0, "utf8")); process.stdout.write(data.tag_name);')"
-RELEASE_ARCHIVE_URL="$(printf '%s' "${RELEASE_JSON}" | node -e 'const fs = require("node:fs"); const data = JSON.parse(fs.readFileSync(0, "utf8")); process.stdout.write(data.tarball_url);')"
+RELEASE_TAG_RESOLVED="$(json_field tag_name)"
+RELEASE_ARCHIVE_URL="$(json_field tarball_url)"
 
 echo "[...] Downloading ${RELEASE_TAG_RESOLVED}..."
 if [ -n "${GITHUB_TOKEN:-}" ]; then
