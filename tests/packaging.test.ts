@@ -26,6 +26,7 @@ describe("package metadata", () => {
     ok(Array.isArray(config.noExternal));
     ok(config.noExternal?.includes("@modelcontextprotocol/server") ?? false);
     ok(config.noExternal?.includes("dotenv") ?? false);
+    ok(config.noExternal?.includes("zod") ?? false);
     ok(!(config.noExternal?.includes("keytar") ?? false));
   });
 });
