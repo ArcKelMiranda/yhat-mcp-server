@@ -6,10 +6,10 @@ export default defineConfig({
   platform: "node",
   outDir: "dist",
   target: "node20",
-  noExternal: ["mssql", "js-yaml", "keytar"],
+  noExternal: ["mssql", "js-yaml", "dotenv"],
   bundle: true,
   sourcemap: true,
-  clean: true,
+  clean: false,
   banner: {
     js: "#!/usr/bin/env node",
   },

@@ -1,24 +1,32 @@
 import { createInterface } from "node:readline";
 import { readFile, writeFile, mkdir, access, constants } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
 import { load as loadYaml } from "js-yaml";
-import * as keytar from "keytar";
 import sql from "mssql";
 
-const __filename = process.argv[1] ?? fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { prepareRuntimeEnvironment } from "./runtime.js";
+import { migrateStableConfig } from "./migrate.js";
+import { saveDatabasePassword, loadDatabasePassword, saveSecret, loadSecret } from "./keytar.js";
+import { buildOpenCodeConfig } from "./opencode.js";
+import { createServer } from "./server.js";
+import { runStartCommand } from "./start.js";
+import { getDefaultConfigPath, getEnvPath } from "./paths.js";
 
 // ─────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-const KEYTAR_SERVICE = "yhat-mcp";
+function getStableConfigPath(): string {
+  return getDefaultConfigPath();
+}
 
-const CONFIG_PATH = join(__dirname, "..", "config", "yhat-mcp-config.yaml");
-const CONFIG_DIR = join(__dirname, "..", "config");
-const ENV_PATH = join(__dirname, "..", ".env");
+function getStableConfigDir(): string {
+  return dirname(getStableConfigPath());
+}
+
+function getStableEnvPath(): string {
+  return getEnvPath();
+}
 
 function getInstallDir(): string {
   if (process.platform === "win32") {
@@ -38,35 +46,6 @@ const OPENCODE_CONFIG_PATH = resolveHome("~/.config/opencode/opencode.json");
 const REPO_OWNER = "ArcKelMiranda";
 const REPO_NAME = "yhat-mcp-server";
 const GITHUB_API_RELEASES = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
-
-// ─────────────────────────────────────────────────────────────
-// Keytar helpers
-// ─────────────────────────────────────────────────────────────
-
-async function saveSecret(account: string, password: string): Promise<boolean> {
-  try {
-    await keytar.setPassword(KEYTAR_SERVICE, account, password);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function getSecret(account: string): Promise<string | null> {
-  try {
-    return await keytar.getPassword(KEYTAR_SERVICE, account);
-  } catch {
-    return null;
-  }
-}
-
-async function deleteSecret(account: string): Promise<boolean> {
-  try {
-    return await keytar.deletePassword(KEYTAR_SERVICE, account);
-  } catch {
-    return false;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
 // .env file helpers
@@ -149,7 +128,7 @@ interface UpdateCheck {
 
 async function checkForUpdate(): Promise<UpdateCheck> {
   const localVersion = await getLocalVersion();
-  const token = await getSecret("YHAT_GITHUB_TOKEN");
+  const token = await loadSecret("YHAT_GITHUB_TOKEN");
 
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -258,6 +237,7 @@ async function testConnection(params: {
 // ─────────────────────────────────────────────────────────────
 
 async function cmdSetup(): Promise<void> {
+  await migrateStableConfig({ cwd: process.cwd() });
   const prompt = createPrompt();
 
   try {
@@ -268,8 +248,8 @@ async function cmdSetup(): Promise<void> {
     let existingEnv: EnvVars = {};
     let envExists = false;
     try {
-      await access(ENV_PATH, constants.F_OK);
-      existingEnv = await readEnvFile(ENV_PATH);
+      await access(getStableEnvPath(), constants.F_OK);
+      existingEnv = await readEnvFile(getStableEnvPath());
       envExists = Object.keys(existingEnv).length > 0;
     } catch {
       envExists = false;
@@ -303,7 +283,7 @@ async function cmdSetup(): Promise<void> {
       user = existingEnv[`${prefix}_DB_USER`] ?? "";
       encrypt = (existingEnv[`${prefix}_DB_ENCRYPT`] ?? "true").toLowerCase() !== "false";
       trustServerCertificate = (existingEnv[`${prefix}_DB_TRUST_CERT`] ?? "false").toLowerCase() === "true";
-      const storedPassword = await getSecret("YHAT_DB_PASSWORD");
+      const storedPassword = await loadDatabasePassword("YHAT_DB_PASSWORD");
       password = storedPassword ?? "";
 
       if (!host || !name || !user || !password) {
@@ -314,7 +294,7 @@ async function cmdSetup(): Promise<void> {
         user = user || (await ask("Database user", prompt));
         password = password || (await ask("Database password", prompt));
       } else {
-        console.log("\nUsing existing connection values and keychain password.\n");
+      console.log("\nUsing existing connection values and keychain password.\n");
       }
     } else {
       host = await ask("SQL Server host", prompt);
@@ -376,13 +356,13 @@ async function cmdSetup(): Promise<void> {
     console.log("Connection successful!");
 
     // Save password to keytar
-    const saved = await saveSecret("YHAT_DB_PASSWORD", password);
+    const saved = await saveDatabasePassword(password);
     if (!saved) {
-      console.error("\nWarning: Could not save password to keychain. It will be stored in .env instead.");
+      console.error("\nWarning: Could not save password to keychain. Falling back to YHAT_DB_PASSWORD in the stable .env file.");
     }
 
     // Ask for GitHub token
-    const storedToken = await getSecret("YHAT_GITHUB_TOKEN");
+    const storedToken = await loadSecret("YHAT_GITHUB_TOKEN");
     let githubToken = storedToken ?? "";
     const tokenAnswer = await ask(
       `\nGitHub token for auto-update (leave empty to skip, current: ${storedToken ? "*** (set)" : "(not set)"})`,
@@ -404,8 +384,11 @@ async function cmdSetup(): Promise<void> {
       [`${prefix}_DB_ENCRYPT`]: String(encrypt),
       [`${prefix}_DB_TRUST_CERT`]: String(trustServerCertificate),
     };
-    await mkdir(CONFIG_DIR, { recursive: true });
-    await writeEnvFile(ENV_PATH, envVars);
+    if (!saved) {
+      envVars[`${prefix}_DB_PASSWORD`] = password;
+    }
+    await mkdir(getStableConfigDir(), { recursive: true });
+    await writeEnvFile(getStableEnvPath(), envVars);
 
     const config: Record<string, unknown> = {
       server: { name: "yhat-mcp-server", transport: "stdio" },
@@ -434,12 +417,12 @@ async function cmdSetup(): Promise<void> {
     };
 
     const yamlContent = dumpYaml(config, { lineWidth: 120 });
-    await writeFile(CONFIG_PATH, yamlContent, "utf8");
+    await writeFile(getStableConfigPath(), yamlContent, "utf8");
 
-    console.log(`\nConfig written to: ${CONFIG_PATH}`);
-    console.log("Non-sensitive vars written to: " + ENV_PATH);
+    console.log(`\nConfig written to: ${getStableConfigPath()}`);
+    console.log("Non-sensitive vars written to: " + getStableEnvPath());
     console.log("\nCredentials are stored in your system keychain.");
-    console.log(`\n${prefix}_DB_PASSWORD is read from keychain (service: ${KEYTAR_SERVICE}).`);
+    console.log(`\n${prefix}_DB_PASSWORD is read from keychain (service: yhat-mcp).`);
 
     const doInstall = await confirm("\nInstall MCP server in OpenCode config?", prompt);
 
@@ -492,13 +475,9 @@ async function cmdInstall(askOverwrite = true): Promise<void> {
   try {
     const opencodeConfig = await readOpenCodeConfig();
     const serverName = "yhat-sql";
-    const serverEntry: Record<string, unknown> = {
-      type: "local",
-      command: ["npx", "tsx", join(__dirname, "..", "src", "index.ts")],
-    };
 
     if (opencodeConfig === null) {
-      const newConfig: OpenCodeConfig = { mcp: { [serverName]: serverEntry } };
+      const newConfig: OpenCodeConfig = buildOpenCodeConfig(null, serverName);
       await writeOpenCodeConfig(newConfig);
       console.log(`\nInstalled "${serverName}" in ${OPENCODE_CONFIG_PATH}`);
       return;
@@ -517,13 +496,7 @@ async function cmdInstall(askOverwrite = true): Promise<void> {
       }
     }
 
-    const updatedConfig: OpenCodeConfig = {
-      ...opencodeConfig,
-      mcp: {
-        ...opencodeConfig.mcp,
-        [serverName]: serverEntry,
-      },
-    };
+    const updatedConfig: OpenCodeConfig = buildOpenCodeConfig(opencodeConfig, serverName);
 
     await writeOpenCodeConfig(updatedConfig);
     console.log(`\n"${serverName}" installed in ${OPENCODE_CONFIG_PATH}`);
@@ -648,25 +621,13 @@ async function cmdUpdate(): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 
 async function cmdStart(): Promise<void> {
-  // Silently check for updates in the background
-  checkForUpdate()
-    .then((update) => {
-      if (update.hasUpdate) {
-        process.stderr.write(`\n[yhat-mcp] Update available: ${update.latestVersion} (current: ${update.localVersion})\n`);
-        process.stderr.write(`[yhat-mcp] Run 'yhat-mcp update' to upgrade.\n`);
-      }
-    })
-    .catch(() => {
-      // Silently ignore update check errors
-    });
+  prepareRuntimeEnvironment();
+  await migrateStableConfig({ cwd: process.cwd() });
 
-  const child = spawn("npx", ["tsx", join(__dirname, "..", "src", "index.ts")], {
-    stdio: "inherit",
-    shell: true,
-  });
-
-  child.on("exit", (code) => {
-    process.exitCode = code ?? undefined;
+  await runStartCommand({
+    createServer,
+    checkForUpdate,
+    stderr: process.stderr,
   });
 }
 
@@ -678,7 +639,7 @@ async function cmdConfig(): Promise<void> {
   const prompt = createPrompt();
 
   try {
-    const content = await readFile(CONFIG_PATH, "utf8");
+    const content = await readFile(getStableConfigPath(), "utf8");
     const config = loadYaml(content) as Record<string, unknown>;
     const whitelist = (config["whitelist"] as Array<Record<string, unknown>>) ?? [];
 
@@ -730,7 +691,7 @@ async function cmdConfig(): Promise<void> {
 
         whitelist.push({ schema: schema.trim(), tables, mode: "read_only" });
         config["whitelist"] = whitelist;
-        await writeFile(CONFIG_PATH, dumpYaml(config, { lineWidth: 120 }), "utf8");
+        await writeFile(getStableConfigPath(), dumpYaml(config, { lineWidth: 120 }), "utf8");
         console.log(`Schema "${schema.trim()}" added.`);
         break;
       }
@@ -746,7 +707,7 @@ async function cmdConfig(): Promise<void> {
 
         whitelist.splice(idx, 1);
         config["whitelist"] = whitelist;
-        await writeFile(CONFIG_PATH, dumpYaml(config, { lineWidth: 120 }), "utf8");
+        await writeFile(getStableConfigPath(), dumpYaml(config, { lineWidth: 120 }), "utf8");
         console.log(`Schema "${schema.trim()}" removed.`);
         break;
       }
@@ -772,7 +733,7 @@ async function cmdConfig(): Promise<void> {
           tables.push(table.trim());
         }
 
-        await writeFile(CONFIG_PATH, dumpYaml(config, { lineWidth: 120 }), "utf8");
+        await writeFile(getStableConfigPath(), dumpYaml(config, { lineWidth: 120 }), "utf8");
         console.log(`Table "${table.trim()}" added to "${schema.trim()}".`);
         break;
       }
@@ -805,7 +766,7 @@ async function cmdConfig(): Promise<void> {
         }
 
         config["whitelist"] = whitelist;
-        await writeFile(CONFIG_PATH, dumpYaml(config, { lineWidth: 120 }), "utf8");
+        await writeFile(getStableConfigPath(), dumpYaml(config, { lineWidth: 120 }), "utf8");
         console.log(`Table "${table.trim()}" removed.`);
         break;
       }
@@ -817,7 +778,7 @@ async function cmdConfig(): Promise<void> {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      console.error(`Config file not found: ${CONFIG_PATH}`);
+      console.error(`Config file not found: ${getStableConfigPath()}`);
       console.error("Run 'yhat-mcp setup' first.");
     } else {
       throw error;
@@ -834,6 +795,8 @@ async function cmdConfig(): Promise<void> {
 const action = process.argv[2] ?? "help";
 
 void (async (): Promise<void> => {
+  prepareRuntimeEnvironment();
+
   switch (action) {
     case "setup":
       await cmdSetup();

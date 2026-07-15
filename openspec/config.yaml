@@ -1,50 +1,52 @@
 schema: spec-driven
 
 project:
-  name: MCP_SQLServer
+  name: yhat-mcp-server
   display_name: Yhat MCP Server
-  language: python
-  runtime: python 3.10+
-  framework: mcp (Anthropic official SDK)
-  package_manager: uv / pip
-  architecture: mcp-server-stdio-sse
+  language: typescript
+  runtime: node 20+
+  framework: "@modelcontextprotocol/server v2"
+  package_manager: npm
+  architecture: mcp-server-stdio
 
 context: |
-  Python 3.10+ MCP server for secure, auditable SQL Server access.
-  Uses Anthropic mcp SDK, pyodbc/SQLAlchemy, Pydantic, PyYAML.
-  Query Guard + RBAC + Audit Logger layered architecture.
-  No implementation yet; project is at PRD stage.
+  TypeScript/Node.js 20+ MCP server for secure, auditable SQL Server access.
+  Uses @modelcontextprotocol/server v2 SDK, mssql (TDS), node-sql-parser, zod v4, js-yaml.
+  Layered security pipeline: Query Guard, SQL Parser, Whitelist Auth, Row Limit, Audit Logger.
+  CLI entrypoint: src/cli.ts, bundled with tsup to dist/cli.cjs.
 
-strict_tdd: false
+strict_tdd: true
 
 rules:
   proposal:
     - Align with PRD v1.1 scope and non-objectives
+    - Prefer incremental, read-only-safe changes
   specs:
     - Use Given/When/Then for scenarios
     - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
   design:
     - Include sequence diagrams for complex flows
-    - Document architecture decisions with rationale
+    - Document security decisions with rationale
   tasks:
     - Group by phase, use hierarchical numbering
     - Keep tasks completable in one session
   apply:
     follow_existing_patterns: true
-    tdd: false
-    test_command: ""
+    tdd: true
+    test_command: "npm test"
   verify:
-    test_command: ""
-    build_command: ""
-    coverage_threshold: 80
+    test_command: "npm test"
+    build_command: "npm run build"
+    coverage_threshold: 0
   archive:
     - Warn before merging destructive deltas
 
 testing:
-  runner: pytest
-  async_runner: pytest-asyncio
-  coverage_tool: pytest-cov
-  coverage_threshold: 80
-  strict_tdd: false
-  available: false
-  notes: Test runner and project code not yet initialized. PRD plans pytest + pytest-asyncio.
+  runner: node
+  framework: node --test
+  command: "node --import tsx --test tests"
+  coverage_tool: none
+  coverage_threshold: 0
+  strict_tdd: true
+  available: true
+  notes: "Test runner is configured but tests/ directory is empty (only .gitkeep). Add test files before enforcing coverage or CI gates."

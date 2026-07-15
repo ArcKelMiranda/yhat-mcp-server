@@ -4,12 +4,13 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
-import { loadConfigFile, DEFAULT_CONFIG_PATH } from "./config.js";
+import { loadConfigFile } from "./config.js";
 import { createAuditLogger } from "./audit.js";
 import { createDatabaseClient } from "./database.js";
 import { enforceRowLimit } from "./row-limit.js";
 import { classifyQuery } from "./validator.js";
 import { authorizeQueryTables } from "./whitelist.js";
+import { getConfigRoot, resolveConfigPath } from "./paths.js";
 import {
   type AuditEntry,
   type AuditLogger,
@@ -41,7 +42,7 @@ export function createServer(options: ServerBootstrapOptions = {}): ServerRuntim
   const stdin = options.stdin ?? process.stdin;
   const signals = options.signals ?? DEFAULT_SIGNALS;
   const env = options.env ?? process.env;
-  const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
+  const configPath = options.configPath ?? resolveConfigPath(env);
 
   let state: ServerState = SERVER_STATE.STOPPED;
   let started = false;
@@ -111,7 +112,7 @@ export function createServer(options: ServerBootstrapOptions = {}): ServerRuntim
     state = SERVER_STATE.STARTING;
 
     try {
-      const config = await loadConfigFile(configPath, env);
+      const config = await loadConfigFile(configPath, env, getConfigRoot(env));
       const database = createDatabaseClient(config.database, env);
       const audit = createAuditLogger(config.audit);
 

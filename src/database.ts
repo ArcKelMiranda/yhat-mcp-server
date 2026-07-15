@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 
 import sql from "mssql";
 
+import { resolveDatabasePassword } from "./keytar.js";
 import type {
   DatabaseClient,
   DatabaseConfig,
@@ -65,7 +66,7 @@ export function createDatabaseClient(config: DatabaseConfig, env: NodeJS.Process
       return state.connecting;
     }
 
-    const password = resolveSecret(config.passwordEnv, env);
+    const password = await resolveDatabasePassword(config.passwordEnv, env);
     const poolConfig: sql.config = {
       user: config.user,
       password,
@@ -94,16 +95,6 @@ export function createDatabaseClient(config: DatabaseConfig, env: NodeJS.Process
     close,
     executeSelect,
   };
-}
-
-function resolveSecret(secretName: string, env: NodeJS.ProcessEnv): string {
-  const secretValue = env[secretName];
-
-  if (secretValue === undefined || secretValue === null || secretValue === "") {
-    throw new Error(`Missing required environment variable: ${secretName}`);
-  }
-
-  return secretValue;
 }
 
 function normalizeRecordset(recordset: unknown): readonly QueryExecutionRow[] {

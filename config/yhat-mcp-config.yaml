@@ -3,12 +3,12 @@ server:
   transport: stdio
 database:
   host: ${YHAT_DB_HOST}
-  port: 1433
+  port: 8444
   name: ${YHAT_DB_NAME}
   user: ${YHAT_DB_USER}
   passwordEnv: YHAT_DB_PASSWORD
   encrypt: true
-  trustServerCertificate: true
+  trustServerCertificate: false
 whitelist:
   - schema: SDK
     tables:
