@@ -27,6 +27,7 @@ describe("package metadata", () => {
     ok(config.noExternal?.includes("@modelcontextprotocol/server") ?? false);
     ok(config.noExternal?.includes("dotenv") ?? false);
     ok(config.noExternal?.includes("zod") ?? false);
+    ok(config.noExternal?.includes("node-sql-parser") ?? false);
     ok(!(config.noExternal?.includes("keytar") ?? false));
   });
 });
