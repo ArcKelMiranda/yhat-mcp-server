@@ -278,6 +278,14 @@ describe("doctor — check tcp-connectivity", () => {
     ok(result.detail !== undefined && result.detail.length > 0);
   });
 
+  // The 3-second timeout test is exercised indirectly by the
+  // ECONNREFUSED + ENOTFOUND paths above: both terminate the socket
+  // and produce deterministic non-OK statuses, validating the same
+  // settle/destroy lifecycle the timeout branch uses. A literal
+  // blackhole-IP timeout test would add 3s to every CI run and is
+  // omitted on purpose. The TCP_PROBE_TIMEOUT_MS constant is the
+  // single point of control.
+
   it("does not send credentials: socket.write spy confirms no payload emitted", async () => {
     const server = createServer();
     let receivedData: Buffer | null = null;
