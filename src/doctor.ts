@@ -170,3 +170,33 @@ async function readPackageVersion(): Promise<string> {
     return "unknown";
   }
 }
+
+export const checkConfigRoot: Check = async (ctx) => {
+  const { access, constants } = await import("node:fs/promises");
+  try {
+    await access(ctx.root, constants.F_OK);
+  } catch {
+    return {
+      id: "config-root",
+      title: "config-root",
+      status: "fail",
+      detail: `config root not found: ${ctx.root}`,
+    };
+  }
+  try {
+    await access(ctx.root, constants.W_OK);
+  } catch {
+    return {
+      id: "config-root",
+      title: "config-root",
+      status: "warn",
+      detail: `config root not writable: ${ctx.root}`,
+    };
+  }
+  return {
+    id: "config-root",
+    title: "config-root",
+    status: "ok",
+    detail: ctx.root,
+  };
+};

@@ -3,6 +3,7 @@ import { ok, strictEqual } from "node:assert/strict";
 
 import {
   checkVersion,
+  checkConfigRoot,
   formatReport,
   toJsonReport,
   type CheckContext,
@@ -138,5 +139,28 @@ describe("doctor — check version", () => {
     ok(typeof data.node === "string" && data.node.startsWith("v"));
     strictEqual(data.platform, process.platform);
     strictEqual(data.arch, process.arch);
+  });
+});
+
+describe("doctor — check config-root", () => {
+  it("returns ok when root exists and is writable", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-cfgroot-"));
+    try {
+      const result = await checkConfigRoot(makeContext({ root: workspace }));
+      strictEqual(result.status, "ok");
+      ok(result.detail === workspace || result.detail === workspace.replace(/\\/g, "/"));
+    } finally {
+      const { rmSync } = await import("node:fs");
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("returns fail when root does not exist", async () => {
+    const result = await checkConfigRoot(makeContext({ root: "/nonexistent/yhat-root-xyz" }));
+    strictEqual(result.status, "fail");
+    ok(result.detail?.includes("not found"));
   });
 });
