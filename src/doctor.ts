@@ -209,6 +209,7 @@ export const checkConfigRoot: Check = async (ctx) => {
 const REQUIRED_ENV_KEYS = ["YHAT_DB_HOST", "YHAT_DB_PORT", "YHAT_DB_NAME", "YHAT_DB_USER"] as const;
 
 function maskEnvVar(name: string, value: string | undefined): string {
+  // Kept byte-identical with src/cli.ts:60; extraction is intentionally deferred.
   if (value === undefined || value === "") return `${name}=(not set)`;
   const lower = name.toLowerCase();
   if (lower.includes("password") || lower.includes("token") || lower.includes("secret")) {

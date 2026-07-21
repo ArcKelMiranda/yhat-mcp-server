@@ -157,12 +157,12 @@
 - **Files**: `src/doctor.ts`
 - **Estimated diff**: ~30 líneas
 - **Acceptance**:
-  - [ ] Invoca `loadSecret(KEYTAR_ACCOUNT, env, ctx.secretStore)` desde `src/keytar.ts`
-  - [ ] `secretStore !== null && secret presente` → `ok` con `detail: "secret present"`
-  - [ ] `secretStore !== null && secret null/""` → `fail` con `detail: "missing secret: run yhat-mcp setup"`
-  - [ ] `secretStore === null && platform in ["linux","darwin"]` → `fail` con hint `install libsecret-1-0`
-  - [ ] `secretStore === null && platform === "win32"` → `warn` con `detail: "keytar prebuild not available; password will fall back to env"`
-  - [ ] `data` nunca contiene el valor del secret
+  - [x] Invoca `loadSecret(KEYTAR_ACCOUNT, env, ctx.secretStore)` desde `src/keytar.ts`
+  - [x] `secretStore !== null && secret presente` → `ok` con `detail: "secret present"`
+  - [x] `secretStore !== null && secret null/""` → `fail` con `detail: "missing secret: run yhat-mcp setup"`
+  - [x] `secretStore === null && platform in ["linux","darwin"]` → `fail` con hint `install libsecret-1-0`
+  - [x] `secretStore === null && platform === "win32"` → `warn` con `detail: "keytar prebuild not available; password will fall back to env"`
+  - [x] `data` nunca contiene el valor del secret
 - **Maps to spec scenarios**: "Doctor sale con código 1 cuando al menos un check está en WARN", "Doctor sale con código 2 cuando al menos un check está en FAIL", "Keytar cargable y secret presente", "Keytar cargable y secret ausente", "Keytar no cargable en plataforma que lo requiere", "Keytar no cargable en plataforma con keychain no estándar", "Doctor prioriza FAIL sobre WARN en el exit code"
 
 ### T9 — Check `audit-log`
@@ -171,13 +171,13 @@
 - **Files**: `src/doctor.ts`
 - **Estimated diff**: ~25 líneas
 - **Acceptance**:
-  - [ ] Usa `resolveAuditLogDir(config.audit.logDir, ctx.root)` desde `src/paths.ts`
-  - [ ] `stat` del directorio + `access(W_OK)`
-  - [ ] Directorio no existe o no escribible → `fail`
-  - [ ] Glob `audit-*.ndjson` para detectar el archivo activo, match del regex `audit-YYYY-MM-DDTHH-MM-SS-SSSZ.ndjson`; si no hay activo, `sizeBytes = 0`
-  - [ ] `sizeBytes < maxSizeMb * 0.9 * 1_048_576` → `ok` con `detail: "current file <size>"`
-  - [ ] Entre 90% y 100% → `warn` con `detail: "current file near limit (<size> / <max> MB)"`
-  - [ ] `maxSizeMb` se lee de `config.audit.maxSizeMb` (no hardcoded)
+  - [x] Usa `resolveAuditLogDir(config.audit.logDir, ctx.root)` desde `src/paths.ts`
+  - [x] `stat` del directorio + `access(W_OK)`
+  - [x] Directorio no existe o no escribible → `fail`
+  - [x] Glob `audit-*.ndjson` para detectar el archivo activo, match del regex `audit-YYYY-MM-DDTHH-MM-SS-SSSZ.ndjson`; si no hay activo, `sizeBytes = 0`
+  - [x] `sizeBytes < maxSizeMb * 0.9 * 1_048_576` → `ok` con `detail: "current file <size>"`
+  - [x] Entre 90% y 100% → `warn` con `detail: "current file near limit (<size> / <max> MB)"`
+  - [x] `maxSizeMb` se lee de `config.audit.maxSizeMb` (no hardcoded)
 - **Maps to spec scenarios**: "Doctor sale con código 0 cuando todos los checks pasan" (happy path), "Doctor sale con código 1 cuando al menos un check está en WARN" (caso near-limit)
 
 ### T10 — Check `opencode-registration`
@@ -186,11 +186,11 @@
 - **Files**: `src/doctor.ts`
 - **Estimated diff**: ~14 líneas
 - **Acceptance**:
-  - [ ] Duplica la función de 8 líneas de `readOpenCodeConfig` de `src/cli.ts` (no la exporta)
-  - [ ] Verifica `mcp?.["yhat-sql"] !== undefined`
-  - [ ] Config existe y contiene `yhat-sql` → `ok` con `detail: "yhat-sql registered"`
-  - [ ] Config existe sin la entrada → `warn` con `detail: "yhat-sql not in mcp config"`
-  - [ ] Config no existe → `fail` con `detail: "opencode config not found"`
+  - [x] Duplica la función de 8 líneas de `readOpenCodeConfig` de `src/cli.ts` (no la exporta)
+  - [x] Verifica `mcp?.["yhat-sql"] !== undefined`
+  - [x] Config existe y contiene `yhat-sql` → `ok` con `detail: "yhat-sql registered"`
+  - [x] Config existe sin la entrada → `warn` con `detail: "yhat-sql not in mcp config"`
+  - [x] Config no existe → `fail` con `detail: "opencode config not found"`
 - **Maps to spec scenarios**: "Doctor sale con código 0 cuando todos los checks pasan" (happy path), "Doctor preserva el comportamiento de los subcomandos existentes"
 
 ### T11 — Check `auth-roundtrip` (opt-in)
@@ -199,15 +199,15 @@
 - **Files**: `src/doctor.ts`
 - **Estimated diff**: ~40 líneas
 - **Acceptance**:
-  - [ ] Se exporta como check pero el orquestador lo omite si `flags.checkAuth === false`
-  - [ ] `config.limits.queryTimeoutSeconds` indefinido → `fail` con `detail: "config missing queryTimeoutSeconds; cannot run auth check"`
-  - [ ] Carga secret con `loadSecret`; si retorna null → `fail` con `detail: "credentials not stored"`
-  - [ ] Crea `sql.ConnectionPool` con los mismos parámetros que `testConnection` (reusar patrón, no duplicar setup)
-  - [ ] Ejecuta `SELECT 1` dentro de `try/catch/finally`
-  - [ ] `pool.close()` en `finally`
-  - [ ] `catch`: regex redacta `password|user|secret|connection string` con `[REDACTED]` antes de componer el `detail`
-  - [ ] Éxito → `ok` con `data: { durationMs }`
-  - [ ] `data` y `detail` nunca contienen el valor del secret
+  - [x] Se exporta como check pero el orquestador lo omite si `flags.checkAuth === false`
+  - [x] `config.limits.queryTimeoutSeconds` indefinido → `fail` con `detail: "config missing queryTimeoutSeconds; cannot run auth check"`
+  - [x] Carga secret con `loadSecret`; si retorna null → `fail` con `detail: "credentials not stored"`
+  - [x] Crea `sql.ConnectionPool` con los mismos parámetros que `testConnection` (reusar patrón, no duplicar setup)
+  - [x] Ejecuta `SELECT 1` dentro de `try/catch/finally`
+  - [x] `pool.close()` en `finally`
+  - [x] `catch`: regex redacta `password|user|secret|connection string` con `[REDACTED]` antes de componer el `detail`
+  - [x] Éxito → `ok` con `data: { durationMs }`
+  - [x] `data` y `detail` nunca contienen el valor del secret
 - **Maps to spec scenarios**: "Auth check presente y exitoso", "Sin flag, el check de auth no se ejecuta", "Auth check presente y secret ausente", "Auth check presente y credencial incorrecta", "`--check auth` no modifica el audit log"
 
 ### T12 — Orquestación `runDoctor({ flags, deps })`
@@ -270,12 +270,12 @@
 - **Files**: `src/cli.ts`
 - **Estimated diff**: ~12 líneas
 - **Acceptance**:
-  - [ ] Inserta `case "doctor":` entre `case "config":` y `default:` (mantiene orden alfabético)
-  - [ ] Parsea `--check-auth` o `--check auth` para setear `checkAuth`
-  - [ ] Llama `await runDoctor({ flags: { checkAuth }, deps: defaultDeps })`
-  - [ ] Escribe `renderReport(report) + "\n"` a stdout con `process.stdout.write` (no `console.log`)
-  - [ ] Setea `process.exitCode = report.exitCode`
-  - [ ] Extiende el bloque de ayuda del `default:` con la línea `doctor    Run read-only diagnostic checks (use --check auth to verify credentials)`
+  - [x] Inserta `case "doctor":` entre `case "config":` y `default:` (mantiene orden alfabético)
+  - [x] Parsea `--check-auth` o `--check auth` para setear `checkAuth`
+  - [x] Llama `await runDoctor({ flags: { checkAuth }, deps: defaultDeps })`
+  - [x] Escribe `renderReport(report) + "\n"` a stdout con `process.stdout.write` (no `console.log`)
+  - [x] Setea `process.exitCode = report.exitCode`
+  - [x] Extiende el bloque de ayuda del `default:` con la línea `doctor    Run read-only diagnostic checks (use --check auth to verify credentials)`
 - **Maps to spec scenarios**: "La ayuda del CLI lista `doctor`", "Doctor preserva el comportamiento de los subcomandos existentes"
 
 ### T16 — Fila de README en la tabla CLI
@@ -284,8 +284,8 @@
 - **Files**: `README.md`
 - **Estimated diff**: ~2 líneas
 - **Acceptance**:
-  - [ ] Agrega una fila en la tabla CLI (líneas 79-86) con el comando `doctor` y una descripción de una línea que mencione `--check auth`
-  - [ ] No cambia el formato del resto de la tabla
+  - [x] Agrega una fila en la tabla CLI (líneas 79-86) con el comando `doctor` y una descripción de una línea que mencione `--check auth`
+  - [x] No cambia el formato del resto de la tabla
 - **Maps to spec scenarios**: "La ayuda del CLI lista `doctor`" (cobertura secundaria, ayuda CLI ya cubierta por T15)
 
 ### T17 — Tests de los checks 6, 8, 9, 10 y de los escenarios de integración
@@ -294,7 +294,7 @@
 - **Files**: `tests/doctor.test.ts` (extend)
 - **Estimated diff**: ~140 líneas
 - **Acceptance**:
-  - [ ] Test 9: `loadConfigFile` mock throws ENOENT → `runDoctor` setea `exitCode: 2`, `process.exitCode === 2`, stderr contiene la ruta y `"yhat-mcp setup"`
+  - [x] Test 9: `loadConfigFile` mock throws ENOENT → `runDoctor` setea `exitCode: 2`, `process.exitCode === 2`, stderr contiene la ruta y `"yhat-mcp setup"`
   - [ ] Test 14: `--check auth` con secret válido + DB mock (mssql mockeado a nivel de `sql.ConnectionPool`) → `status: "ok"`, `data.durationMs > 0`
   - [ ] Test 15: `runDoctor({ flags: { checkAuth: false } })` → `report.checks` NO contiene `id === "auth-roundtrip"`
   - [ ] Test 16: `--check auth` con secret ausente → `status: "fail"`, `detail.includes("credentials not stored")`
