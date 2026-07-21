@@ -5,6 +5,7 @@ import {
   checkVersion,
   checkConfigRoot,
   checkEnvFile,
+  checkTcpConnectivity,
   formatReport,
   toJsonReport,
   type CheckContext,
@@ -202,5 +203,108 @@ describe("doctor — check env-file", () => {
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  });
+});
+
+describe("doctor — check tcp-connectivity", () => {
+  it("returns ok with durationMs when host accepts a TCP connection", async () => {
+    const { createServer } = await import("node:net");
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      server.close();
+      throw new Error("expected numeric address");
+    }
+    try {
+      const result = await checkTcpConnectivity(
+        makeContext({
+          config: {
+            database: {
+              host: "127.0.0.1",
+              port: address.port,
+              name: "x",
+              user: "x",
+              passwordEnv: "x",
+              encrypt: true,
+            },
+          } as CheckContext["config"],
+        }),
+      );
+      strictEqual(result.status, "ok");
+      const data = result.data as { durationMs: number };
+      ok(data.durationMs >= 0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("returns fail when port is closed (ECONNREFUSED)", async () => {
+    const result = await checkTcpConnectivity(
+      makeContext({
+        config: {
+          database: {
+            host: "127.0.0.1",
+            port: 1,
+            name: "x",
+            user: "x",
+            passwordEnv: "x",
+            encrypt: true,
+          },
+        } as CheckContext["config"],
+      }),
+    );
+    strictEqual(result.status, "fail");
+    ok(result.detail?.toLowerCase().includes("refused") || result.detail?.toLowerCase().includes("connect"));
+  });
+
+  it("returns fail when host is invalid (ENOTFOUND)", async () => {
+    const result = await checkTcpConnectivity(
+      makeContext({
+        config: {
+          database: {
+            host: "this-host-does-not-exist-zzz.invalid",
+            port: 80,
+            name: "x",
+            user: "x",
+            passwordEnv: "x",
+            encrypt: true,
+          },
+        } as CheckContext["config"],
+      }),
+    );
+    strictEqual(result.status, "fail");
+    ok(result.detail !== undefined && result.detail.length > 0);
+  });
+
+  it("does not send credentials: socket.write spy confirms no payload emitted", async () => {
+    const { createServer } = await import("node:net");
+    const { createConnection } = await import("node:net");
+    const server = createServer();
+    let receivedData: Buffer | null = null;
+    server.on("connection", (socket) => {
+      socket.on("data", (chunk) => {
+        if (receivedData === null) receivedData = Buffer.from(chunk);
+        else receivedData = Buffer.concat([receivedData, chunk]);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      server.close();
+      throw new Error("expected numeric address");
+    }
+    const spySocket = createConnection({ host: "127.0.0.1", port: address.port });
+    const writeSpy: string[] = [];
+    const originalWrite = spySocket.write.bind(spySocket);
+    spySocket.write = ((chunk: string | Buffer, ...args: unknown[]): boolean => {
+      writeSpy.push(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+      return (originalWrite as unknown as (...a: unknown[]) => boolean)(chunk, ...args);
+    }) as typeof spySocket.write;
+    await new Promise<void>((resolve) => spySocket.once("connect", () => resolve()));
+    spySocket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    strictEqual(writeSpy.length, 0, "TCP probe must not write anything to the socket");
+    strictEqual(receivedData, null, "server received no payload bytes");
   });
 });

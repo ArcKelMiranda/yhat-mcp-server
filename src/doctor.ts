@@ -270,3 +270,75 @@ export const checkEnvFile: Check = async (ctx) => {
     detail: present.join(", "),
   };
 };
+
+const TCP_PROBE_TIMEOUT_MS = 3000;
+
+export const checkTcpConnectivity: Check = async (ctx) => {
+  const host = ctx.config.database.host;
+  const port = ctx.config.database.port;
+  if (typeof host !== "string" || host === "" || typeof port !== "number" || port <= 0) {
+    return {
+      id: "tcp-connectivity",
+      title: "tcp-connectivity",
+      status: "fail",
+      detail: "invalid host/port in config",
+    };
+  }
+
+  const { createConnection } = await import("node:net");
+  const { performance } = await import("node:perf_hooks");
+
+  return new Promise<CheckResult>((resolve) => {
+    const started = performance.now();
+    const socket = createConnection({ host, port });
+    let settled = false;
+
+    const settle = (result: CheckResult): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+
+    socket.setTimeout(TCP_PROBE_TIMEOUT_MS);
+
+    socket.once("connect", () => {
+      const durationMs = Math.round(performance.now() - started);
+      settle({
+        id: "tcp-connectivity",
+        title: "tcp-connectivity",
+        status: "ok",
+        detail: `${durationMs}ms`,
+        data: { durationMs },
+      });
+    });
+
+    socket.once("timeout", () => {
+      settle({
+        id: "tcp-connectivity",
+        title: "tcp-connectivity",
+        status: "warn",
+        detail: `tcp probe timeout after ${TCP_PROBE_TIMEOUT_MS}ms`,
+      });
+    });
+
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      const code = error.code ?? "UNKNOWN";
+      if (code === "ETIMEDOUT") {
+        settle({
+          id: "tcp-connectivity",
+          title: "tcp-connectivity",
+          status: "warn",
+          detail: `tcp probe timeout after ${TCP_PROBE_TIMEOUT_MS}ms`,
+        });
+        return;
+      }
+      settle({
+        id: "tcp-connectivity",
+        title: "tcp-connectivity",
+        status: "fail",
+        detail: `tcp connection failed: ${code}`,
+      });
+    });
+  });
+};
