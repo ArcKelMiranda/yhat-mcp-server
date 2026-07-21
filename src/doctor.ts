@@ -1,3 +1,8 @@
+import { access, constants, readFile } from "node:fs/promises";
+import { createConnection } from "node:net";
+import { join } from "node:path";
+import { performance } from "node:perf_hooks";
+
 import type { Config } from "./types.js";
 import type { SecretStore } from "./keytar.js";
 
@@ -161,8 +166,6 @@ export const checkVersion: Check = async () => {
 
 async function readPackageVersion(): Promise<string> {
   try {
-    const { readFile } = await import("node:fs/promises");
-    const { join } = await import("node:path");
     const raw = await readFile(join(process.cwd(), "package.json"), "utf8");
     const parsed = JSON.parse(raw) as { version?: string };
     return parsed.version ?? "unknown";
@@ -172,7 +175,6 @@ async function readPackageVersion(): Promise<string> {
 }
 
 export const checkConfigRoot: Check = async (ctx) => {
-  const { access, constants } = await import("node:fs/promises");
   try {
     await access(ctx.root, constants.F_OK);
   } catch {
@@ -213,7 +215,6 @@ function maskEnvVar(name: string, value: string | undefined): string {
 }
 
 async function readEnvFile(path: string): Promise<Record<string, string>> {
-  const { readFile } = await import("node:fs/promises");
   try {
     const content = await readFile(path, "utf8");
     const vars: Record<string, string> = {};
@@ -284,9 +285,6 @@ export const checkTcpConnectivity: Check = async (ctx) => {
       detail: "invalid host/port in config",
     };
   }
-
-  const { createConnection } = await import("node:net");
-  const { performance } = await import("node:perf_hooks");
 
   return new Promise<CheckResult>((resolve) => {
     const started = performance.now();

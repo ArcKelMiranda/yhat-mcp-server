@@ -1,5 +1,9 @@
 import { describe, it } from "node:test";
-import { ok, strictEqual } from "node:assert/strict";
+import { ok, strictEqual, deepStrictEqual } from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createServer, createConnection } from "node:net";
 
 import {
   checkVersion,
@@ -154,16 +158,12 @@ describe("doctor — check version", () => {
 
 describe("doctor — check config-root", () => {
   it("returns ok when root exists and is writable", async () => {
-    const { mkdtempSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
     const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-cfgroot-"));
     try {
       const result = await checkConfigRoot(makeContext({ root: workspace }));
       strictEqual(result.status, "ok");
       ok(result.detail === workspace || result.detail === workspace.replace(/\\/g, "/"));
     } finally {
-      const { rmSync } = await import("node:fs");
       rmSync(workspace, { recursive: true, force: true });
     }
   });
@@ -177,9 +177,6 @@ describe("doctor — check config-root", () => {
 
 describe("doctor — check env-file", () => {
   it("returns ok when all required YHAT_DB_* keys are present and masks the password", async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
     const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-env-"));
     const envPath = join(workspace, ".env");
     writeFileSync(
@@ -198,9 +195,6 @@ describe("doctor — check env-file", () => {
   });
 
   it("returns warn when a required key is missing", async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
     const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-env-"));
     const envPath = join(workspace, ".env");
     writeFileSync(envPath, "YHAT_DB_HOST=db.example\n", "utf8");
@@ -216,7 +210,6 @@ describe("doctor — check env-file", () => {
 
 describe("doctor — check tcp-connectivity", () => {
   it("returns ok with durationMs when host accepts a TCP connection", async () => {
-    const { createServer } = await import("node:net");
     const server = createServer();
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
@@ -286,8 +279,6 @@ describe("doctor — check tcp-connectivity", () => {
   });
 
   it("does not send credentials: socket.write spy confirms no payload emitted", async () => {
-    const { createServer } = await import("node:net");
-    const { createConnection } = await import("node:net");
     const server = createServer();
     let receivedData: Buffer | null = null;
     server.on("connection", (socket) => {
@@ -561,8 +552,6 @@ describe("doctor — runChecks end-to-end", () => {
       }
       return out;
     };
-    const nodeAssert = await import("node:assert/strict");
-    const deepStrictEqual = nodeAssert.deepStrictEqual as (a: unknown, b: unknown) => void;
     deepStrictEqual(mask(a), mask(b));
   });
 });
