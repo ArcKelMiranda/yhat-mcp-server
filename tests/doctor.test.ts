@@ -9,8 +9,13 @@ import {
   checkWhitelist,
   formatReport,
   toJsonReport,
+  aggregateSummary,
+  executeChecks,
+  runChecks,
   type CheckContext,
   type CheckResult,
+  type DoctorDependencies,
+  type DoctorFlags,
   type DoctorReport,
 } from "../src/doctor.js";
 
@@ -354,5 +359,138 @@ describe("doctor — check whitelist", () => {
     const result = await checkWhitelist(ctx);
     strictEqual(result.detail?.includes("secretSchema"), false);
     strictEqual(result.detail?.includes("secretTable"), false);
+  });
+});
+
+function makeOkCheck(id: string, title?: string): (ctx: CheckContext) => CheckResult {
+  return () => ({ id, title: title ?? id, status: "ok", detail: "ok" });
+}
+
+function makeWarnCheck(id: string, title?: string): (ctx: CheckContext) => CheckResult {
+  return () => ({ id, title: title ?? id, status: "warn", detail: "warn" });
+}
+
+function makeFailCheck(id: string, title?: string): (ctx: CheckContext) => CheckResult {
+  return () => ({ id, title: title ?? id, status: "fail", detail: "fail" });
+}
+
+function makeThrowingCheck(id: string): (ctx: CheckContext) => Promise<CheckResult> {
+  return async () => {
+    throw new Error("boom");
+  };
+}
+
+function makeDeps(overrides: Partial<DoctorDependencies> = {}): DoctorDependencies {
+  return {
+    root: "/tmp/yhat",
+    envPath: "/tmp/yhat/.env",
+    config: {} as DoctorDependencies["config"],
+    secretStore: null,
+    pkgVersion: "0.1.0",
+    checks: [],
+    ...overrides,
+  };
+}
+
+function makeFlags(overrides: Partial<DoctorFlags> = {}): DoctorFlags {
+  return { checkAuth: false, ...overrides };
+}
+
+describe("doctor — orchestration (aggregateSummary)", () => {
+  it("all OK -> exitCode 0", () => {
+    const summary = aggregateSummary([
+      makeOkCheck("a")({} as CheckContext),
+      makeOkCheck("b")({} as CheckContext),
+    ]);
+    strictEqual(summary.exitCode, 0);
+    strictEqual(summary.ok, 2);
+  });
+
+  it("single WARN -> exitCode 1", () => {
+    const summary = aggregateSummary([makeWarnCheck("a")({} as CheckContext)]);
+    strictEqual(summary.exitCode, 1);
+    strictEqual(summary.warn, 1);
+  });
+
+  it("single FAIL -> exitCode 2", () => {
+    const summary = aggregateSummary([makeFailCheck("a")({} as CheckContext)]);
+    strictEqual(summary.exitCode, 2);
+    strictEqual(summary.fail, 1);
+  });
+
+  it("FAIL + WARN -> exitCode 2 (FAIL beats WARN)", () => {
+    const summary = aggregateSummary([
+      makeFailCheck("a")({} as CheckContext),
+      makeWarnCheck("b")({} as CheckContext),
+    ]);
+    strictEqual(summary.exitCode, 2);
+  });
+});
+
+describe("doctor — orchestration (executeChecks)", () => {
+  it("runs checks sequentially and converts throws into fail results", async () => {
+    const order: string[] = [];
+    const track = (id: string): (ctx: CheckContext) => Promise<CheckResult> => async () => {
+      order.push(id);
+      return { id, title: id, status: "ok" };
+    };
+    const checks = [track("a"), track("b"), makeThrowingCheck("c"), track("d")];
+    const results = await executeChecks(makeContext(), checks);
+    strictEqual(order.join(","), "a,b,d");
+    strictEqual(results.length, 4);
+    const fail = results.find((r: CheckResult) => r.id === "check-2");
+    strictEqual(fail?.status, "fail");
+    ok(fail?.detail?.includes("boom"));
+  });
+});
+
+describe("doctor — runChecks end-to-end", () => {
+  it("happy path -> exitCode 0 with all checks OK", async () => {
+    const report = await runChecks(
+      [makeOkCheck("a"), makeOkCheck("b")],
+      makeDeps(),
+      makeFlags(),
+    );
+    strictEqual(report.exitCode, 0);
+    strictEqual(report.summary.ok, 2);
+    strictEqual(report.summary.warn, 0);
+    strictEqual(report.summary.fail, 0);
+  });
+
+  it("WARN check -> exitCode 1", async () => {
+    const report = await runChecks(
+      [makeOkCheck("a"), makeWarnCheck("b")],
+      makeDeps(),
+      makeFlags(),
+    );
+    strictEqual(report.exitCode, 1);
+  });
+
+  it("FAIL check -> exitCode 2", async () => {
+    const report = await runChecks(
+      [makeOkCheck("a"), makeFailCheck("b")],
+      makeDeps(),
+      makeFlags(),
+    );
+    strictEqual(report.exitCode, 2);
+  });
+
+  it("two consecutive runs are structurally identical (timestamps masked)", async () => {
+    const checks: readonly ((ctx: CheckContext) => CheckResult | Promise<CheckResult>)[] = [makeOkCheck("a")];
+    const flags = makeFlags();
+    const deps = makeDeps();
+    const a = await runChecks(checks, deps, flags);
+    const b = await runChecks(checks, deps, flags);
+
+    const mask = (r: DoctorReport): Record<string, unknown> => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(r)) {
+        out[k] = k === "startedAt" ? "<masked>" : v;
+      }
+      return out;
+    };
+    const nodeAssert = await import("node:assert/strict");
+    const deepStrictEqual = nodeAssert.deepStrictEqual as (a: unknown, b: unknown) => void;
+    deepStrictEqual(mask(a), mask(b));
   });
 });

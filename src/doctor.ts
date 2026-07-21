@@ -374,3 +374,112 @@ export const checkWhitelist: Check = async (ctx) => {
     data: { schemas },
   };
 };
+
+// ─────────────────────────────────────────────────────────────
+// Orchestration
+// ─────────────────────────────────────────────────────────────
+
+export interface DoctorFlags {
+  checkAuth: boolean;
+}
+
+export interface DoctorDependencies {
+  root: string;
+  envPath: string;
+  config: Config;
+  secretStore: SecretStore | null;
+  pkgVersion: string;
+  checks: readonly Check[];
+}
+
+export interface DoctorOptions {
+  flags: DoctorFlags;
+  deps: DoctorDependencies;
+}
+
+export const STANDARD_CHECKS: readonly Check[] = [
+  checkVersion,
+  checkConfigRoot,
+  checkEnvFile,
+  checkTcpConnectivity,
+  checkWhitelist,
+];
+
+export function buildContext(deps: DoctorDependencies, flags: DoctorFlags): CheckContext {
+  return {
+    root: deps.root,
+    envPath: deps.envPath,
+    config: deps.config,
+    secretStore: deps.secretStore,
+    flags,
+    pkgVersion: deps.pkgVersion,
+  };
+}
+
+export async function executeChecks(
+  ctx: CheckContext,
+  checks: readonly Check[],
+): Promise<readonly CheckResult[]> {
+  const results: CheckResult[] = [];
+  let index = 0;
+  for (const check of checks) {
+    const fallbackId = `check-${index++}`;
+    try {
+      const result = await check(ctx);
+      results.push(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        id: fallbackId,
+        title: fallbackId,
+        status: "fail",
+        detail: `internal error: ${message}`,
+      });
+    }
+  }
+  return results;
+}
+
+export interface Summary {
+  ok: number;
+  warn: number;
+  fail: number;
+  exitCode: 0 | 1 | 2;
+}
+
+export function aggregateSummary(checks: readonly CheckResult[]): Summary {
+  let okCount = 0;
+  let warnCount = 0;
+  let failCount = 0;
+  for (const check of checks) {
+    if (check.status === "ok") okCount++;
+    else if (check.status === "warn") warnCount++;
+    else failCount++;
+  }
+  const exitCode: 0 | 1 | 2 = failCount > 0 ? 2 : warnCount > 0 ? 1 : 0;
+  return { ok: okCount, warn: warnCount, fail: failCount, exitCode };
+}
+
+export async function runChecks(
+  checks: readonly Check[],
+  deps: DoctorDependencies,
+  flags: DoctorFlags,
+): Promise<DoctorReport> {
+  const ctx = buildContext(deps, flags);
+  const results = await executeChecks(ctx, checks);
+  const summary = aggregateSummary(results);
+  return {
+    version: deps.pkgVersion,
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    startedAt: new Date().toISOString(),
+    checks: results,
+    summary: { ok: summary.ok, warn: summary.warn, fail: summary.fail },
+    exitCode: summary.exitCode,
+  };
+}
+
+export async function runDoctorCore(options: DoctorOptions): Promise<DoctorReport> {
+  return runChecks(options.deps.checks, options.deps, options.flags);
+}
