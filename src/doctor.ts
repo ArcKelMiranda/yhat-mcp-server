@@ -136,3 +136,37 @@ export function toTextReport(report: DoctorReport): string {
 export function formatReport(report: DoctorReport, mode: "text" | "json"): string {
   return mode === "json" ? toJsonReport(report) : toTextReport(report);
 }
+
+// ─────────────────────────────────────────────────────────────
+// Individual checks
+// ─────────────────────────────────────────────────────────────
+
+export const checkVersion: Check = async () => {
+  const pkgVersion = await readPackageVersion();
+  const data = {
+    pkg: "yhat-mcp-server",
+    version: pkgVersion,
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+  };
+  return {
+    id: "version",
+    title: "version",
+    status: "ok",
+    detail: `yhat-mcp-server ${pkgVersion}`,
+    data,
+  };
+};
+
+async function readPackageVersion(): Promise<string> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const raw = await readFile(join(process.cwd(), "package.json"), "utf8");
+    const parsed = JSON.parse(raw) as { version?: string };
+    return parsed.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}

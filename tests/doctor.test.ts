@@ -1,7 +1,14 @@
 import { describe, it } from "node:test";
 import { ok, strictEqual } from "node:assert/strict";
 
-import { formatReport, toJsonReport, type CheckResult, type DoctorReport } from "../src/doctor.js";
+import {
+  checkVersion,
+  formatReport,
+  toJsonReport,
+  type CheckContext,
+  type CheckResult,
+  type DoctorReport,
+} from "../src/doctor.js";
 
 function makeReport(overrides: Partial<DoctorReport> = {}): DoctorReport {
   const checks: readonly CheckResult[] = [
@@ -106,5 +113,30 @@ it("formatReport('text') redacts secrets referenced by sensitive keys", () => {
     const out = formatReport(report, "text");
     ok(!out.includes("supersecret123"));
     ok(out.includes("[REDACTED]"));
+  });
+});
+
+function makeContext(overrides: Partial<CheckContext> = {}): CheckContext {
+  return {
+    root: "/tmp/yhat",
+    envPath: "/tmp/yhat/.env",
+    config: {} as CheckContext["config"],
+    secretStore: null,
+    flags: { checkAuth: false },
+    pkgVersion: "0.1.0",
+    ...overrides,
+  };
+}
+
+describe("doctor — check version", () => {
+  it("returns ok with pkg, node, platform, arch in data", async () => {
+    const result = await checkVersion(makeContext());
+    strictEqual(result.id, "version");
+    strictEqual(result.status, "ok");
+    const data = result.data as { pkg: string; node: string; platform: string; arch: string };
+    strictEqual(data.pkg, "yhat-mcp-server");
+    ok(typeof data.node === "string" && data.node.startsWith("v"));
+    strictEqual(data.platform, process.platform);
+    strictEqual(data.arch, process.arch);
   });
 });
