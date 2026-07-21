@@ -1,10 +1,13 @@
-import { access, constants, readFile } from "node:fs/promises";
+import { access, constants, readFile, readdir, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 
+import sql from "mssql";
+
+import { resolveAuditLogDir } from "./paths.js";
+import { KEYTAR_ACCOUNT, loadSecret, type SecretStore } from "./keytar.js";
 import type { Config } from "./types.js";
-import type { SecretStore } from "./keytar.js";
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
@@ -374,8 +377,151 @@ export const checkWhitelist: Check = async (ctx) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Orchestration
+// PR2 checks
 // ─────────────────────────────────────────────────────────────
+
+export const checkKeychain: Check = async (ctx) => {
+  if (ctx.secretStore === null) {
+    if (process.platform === "win32") {
+      return {
+        id: "keychain",
+        title: "keychain",
+        status: "warn",
+        detail: "keytar prebuild not available; password will fall back to env",
+      };
+    }
+    return {
+      id: "keychain",
+      title: "keychain",
+      status: "fail",
+      detail: "keytar unavailable; install libsecret-1-0 and run yhat-mcp setup",
+    };
+  }
+
+  const secret = await loadSecret(KEYTAR_ACCOUNT, process.env, ctx.secretStore);
+  if (secret === null) {
+    return {
+      id: "keychain",
+      title: "keychain",
+      status: "fail",
+      detail: "missing secret: run yhat-mcp setup",
+    };
+  }
+
+  return { id: "keychain", title: "keychain", status: "ok", detail: "secret present" };
+};
+
+const ACTIVE_AUDIT_FILE = /^audit-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.ndjson$/;
+
+export const checkAuditLog: Check = async (ctx) => {
+  const logDir = resolveAuditLogDir(ctx.config.audit.logDir, ctx.root);
+  try {
+    await stat(logDir);
+    await access(logDir, constants.W_OK);
+  } catch {
+    return {
+      id: "audit-log",
+      title: "audit-log",
+      status: "fail",
+      detail: `audit log directory unavailable: ${logDir}`,
+    };
+  }
+
+  let sizeBytes = 0;
+  try {
+    const entries = await readdir(logDir, { withFileTypes: true });
+    const active = entries.find((entry) => entry.isFile() && ACTIVE_AUDIT_FILE.test(entry.name));
+    if (active !== undefined) {
+      sizeBytes = (await stat(join(logDir, active.name))).size;
+    }
+  } catch {
+    sizeBytes = 0;
+  }
+
+  const maxBytes = ctx.config.audit.maxSizeMb * 1_048_576;
+  const sizeMb = (sizeBytes / 1_048_576).toFixed(1);
+  if (sizeBytes >= maxBytes * 0.9) {
+    return {
+      id: "audit-log",
+      title: "audit-log",
+      status: sizeBytes <= maxBytes ? "warn" : "fail",
+      detail: `current file near limit (${sizeMb} / ${ctx.config.audit.maxSizeMb} MB)`,
+    };
+  }
+  return { id: "audit-log", title: "audit-log", status: "ok", detail: `current file ${sizeMb} MB` };
+};
+
+interface OpenCodeConfig {
+  mcp?: Record<string, unknown>;
+}
+
+const OPENCODE_CONFIG_PATH = join(
+  process.env.HOME ?? process.env.USERPROFILE ?? "",
+  ".config",
+  "opencode",
+  "opencode.json",
+);
+
+export const checkOpenCodeRegistration: Check = async () => {
+  let config: OpenCodeConfig;
+  try {
+    const content = await readFile(OPENCODE_CONFIG_PATH, "utf8");
+    config = JSON.parse(content) as OpenCodeConfig;
+  } catch {
+    return { id: "opencode-registration", title: "opencode-registration", status: "fail", detail: "opencode config not found" };
+  }
+  if (config.mcp?.["yhat-sql"] !== undefined) {
+    return { id: "opencode-registration", title: "opencode-registration", status: "ok", detail: "yhat-sql registered" };
+  }
+  return { id: "opencode-registration", title: "opencode-registration", status: "warn", detail: "yhat-sql not in mcp config" };
+};
+
+function sanitizeAuthError(message: string): string {
+  return message.replace(/(password|passwd|pwd|secret|token|connection\s*string)\s*[:=]?\s*[^\s,;]+/gi, "$1=[REDACTED]");
+}
+
+export const checkAuthRoundtrip: Check = async (ctx) => {
+  const timeoutSeconds = ctx.config.limits?.queryTimeoutSeconds;
+  if (timeoutSeconds === undefined) {
+    return {
+      id: "auth-roundtrip",
+      title: "auth-roundtrip",
+      status: "fail",
+      detail: "config missing queryTimeoutSeconds; cannot run auth check",
+    };
+  }
+  const secret = await loadSecret(ctx.config.database.passwordEnv, process.env, ctx.secretStore);
+  if (secret === null) {
+    return { id: "auth-roundtrip", title: "auth-roundtrip", status: "fail", detail: "credentials not stored" };
+  }
+
+  const pool = new sql.ConnectionPool({
+    server: ctx.config.database.host,
+    database: ctx.config.database.name,
+    user: ctx.config.database.user,
+    password: secret,
+    port: ctx.config.database.port,
+    options: {
+      encrypt: ctx.config.database.encrypt,
+      trustServerCertificate: ctx.config.database.trustServerCertificate ?? false,
+      connectTimeout: timeoutSeconds * 1000,
+      requestTimeout: timeoutSeconds * 1000,
+    },
+  });
+  const started = performance.now();
+  try {
+    await pool.connect();
+    await pool.request().query("SELECT 1");
+    const durationMs = Math.round(performance.now() - started);
+    return { id: "auth-roundtrip", title: "auth-roundtrip", status: "ok", detail: `${durationMs}ms`, data: { durationMs } };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { id: "auth-roundtrip", title: "auth-roundtrip", status: "fail", detail: `auth failed: ${sanitizeAuthError(message)}` };
+  } finally {
+    await pool.close().catch(() => undefined);
+  }
+};
+
 
 export interface DoctorFlags {
   checkAuth: boolean;
@@ -478,8 +624,21 @@ export async function runChecks(
   };
 }
 
+export const ALL_CHECKS: readonly Check[] = [
+  ...STANDARD_CHECKS,
+  checkKeychain,
+  checkAuditLog,
+  checkOpenCodeRegistration,
+];
+
+/**
+ * Runs the configured checks. STANDARD_CHECKS is readonly, so aggregation
+ * must spread it into a new array rather than reassigning or mutating it.
+ */
 export async function runDoctorCore(options: DoctorOptions): Promise<DoctorReport> {
-  return runChecks(options.deps.checks, options.deps, options.flags);
+  const checks = options.deps.checks.length > 0 ? options.deps.checks : ALL_CHECKS;
+  const selectedChecks = options.flags.checkAuth ? [...checks, checkAuthRoundtrip] : checks;
+  return runChecks(selectedChecks, options.deps, options.flags);
 }
 
 // ─────────────────────────────────────────────────────────────
