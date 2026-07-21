@@ -6,6 +6,7 @@ import {
   checkConfigRoot,
   checkEnvFile,
   checkTcpConnectivity,
+  checkWhitelist,
   formatReport,
   toJsonReport,
   type CheckContext,
@@ -306,5 +307,52 @@ describe("doctor — check tcp-connectivity", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     strictEqual(writeSpy.length, 0, "TCP probe must not write anything to the socket");
     strictEqual(receivedData, null, "server received no payload bytes");
+  });
+});
+
+describe("doctor — check whitelist", () => {
+  it("returns ok with counts detail when whitelist is non-empty", async () => {
+    const ctx = makeContext({
+      config: {
+        whitelist: [
+          { schema: "public", tables: ["users", "orders"], mode: "read_only" },
+          { schema: "audit", tables: ["events"], mode: "read_only" },
+        ],
+      } as unknown as CheckContext["config"],
+    });
+    const result = await checkWhitelist(ctx);
+    strictEqual(result.status, "ok");
+    strictEqual(result.detail, "2 schemas, 3 tables");
+  });
+
+  it("returns warn when whitelist is empty (data-bearing, never fail)", async () => {
+    const ctx = makeContext({
+      config: { whitelist: [] } as unknown as CheckContext["config"],
+    });
+    const result = await checkWhitelist(ctx);
+    strictEqual(result.status, "warn");
+  });
+
+  it("includes full schema/table names in data for JSON mode", async () => {
+    const ctx = makeContext({
+      config: {
+        whitelist: [{ schema: "public", tables: ["users"], mode: "read_only" }],
+      } as unknown as CheckContext["config"],
+    });
+    const result = await checkWhitelist(ctx);
+    const data = result.data as { schemas: Array<{ schema: string; tables: string[] }> };
+    strictEqual(data.schemas.length, 1);
+    strictEqual(data.schemas[0]?.schema, "public");
+  });
+
+  it("text detail does not include schema or table names (counts only)", async () => {
+    const ctx = makeContext({
+      config: {
+        whitelist: [{ schema: "secretSchema", tables: ["secretTable"], mode: "read_only" }],
+      } as unknown as CheckContext["config"],
+    });
+    const result = await checkWhitelist(ctx);
+    strictEqual(result.detail?.includes("secretSchema"), false);
+    strictEqual(result.detail?.includes("secretTable"), false);
   });
 });

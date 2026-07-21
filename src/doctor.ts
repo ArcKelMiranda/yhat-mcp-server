@@ -342,3 +342,35 @@ export const checkTcpConnectivity: Check = async (ctx) => {
     });
   });
 };
+
+export const checkWhitelist: Check = async (ctx) => {
+  const whitelist = ctx.config.whitelist;
+  const schemaCount = whitelist.length;
+  let tableCount = 0;
+  for (const entry of whitelist) {
+    tableCount += entry.tables.length;
+  }
+
+  const schemas = whitelist.map((entry) => ({
+    schema: entry.schema,
+    tables: [...entry.tables],
+  }));
+
+  if (schemaCount === 0) {
+    return {
+      id: "whitelist",
+      title: "whitelist",
+      status: "warn",
+      detail: "0 schemas, 0 tables",
+      data: { schemas: [] },
+    };
+  }
+
+  return {
+    id: "whitelist",
+    title: "whitelist",
+    status: "ok",
+    detail: `${schemaCount} schemas, ${tableCount} tables`,
+    data: { schemas },
+  };
+};
