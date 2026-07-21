@@ -4,6 +4,7 @@ import { ok, strictEqual } from "node:assert/strict";
 import {
   checkVersion,
   checkConfigRoot,
+  checkEnvFile,
   formatReport,
   toJsonReport,
   type CheckContext,
@@ -162,5 +163,44 @@ describe("doctor — check config-root", () => {
     const result = await checkConfigRoot(makeContext({ root: "/nonexistent/yhat-root-xyz" }));
     strictEqual(result.status, "fail");
     ok(result.detail?.includes("not found"));
+  });
+});
+
+describe("doctor — check env-file", () => {
+  it("returns ok when all required YHAT_DB_* keys are present and masks the password", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-env-"));
+    const envPath = join(workspace, ".env");
+    writeFileSync(
+      envPath,
+      "YHAT_DB_HOST=db.example\nYHAT_DB_PORT=1433\nYHAT_DB_NAME=mydb\nYHAT_DB_USER=sa\nYHAT_DB_PASSWORD=supersecret123\n",
+      "utf8",
+    );
+    try {
+      const result = await checkEnvFile(makeContext({ envPath }));
+      strictEqual(result.status, "ok");
+      ok(result.detail?.includes("YHAT_DB_HOST"));
+      ok(!result.detail?.includes("supersecret123"), "password value must NOT appear in detail");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("returns warn when a required key is missing", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-env-"));
+    const envPath = join(workspace, ".env");
+    writeFileSync(envPath, "YHAT_DB_HOST=db.example\n", "utf8");
+    try {
+      const result = await checkEnvFile(makeContext({ envPath }));
+      strictEqual(result.status, "warn");
+      ok(result.detail?.includes("missing"));
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 });

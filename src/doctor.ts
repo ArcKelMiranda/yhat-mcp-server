@@ -200,3 +200,73 @@ export const checkConfigRoot: Check = async (ctx) => {
     detail: ctx.root,
   };
 };
+
+const REQUIRED_ENV_KEYS = ["YHAT_DB_HOST", "YHAT_DB_PORT", "YHAT_DB_NAME", "YHAT_DB_USER"] as const;
+
+function maskEnvVar(name: string, value: string | undefined): string {
+  if (value === undefined || value === "") return `${name}=(not set)`;
+  const lower = name.toLowerCase();
+  if (lower.includes("password") || lower.includes("token") || lower.includes("secret")) {
+    return `${name}=*** (set)`;
+  }
+  return `${name}=${value}`;
+}
+
+async function readEnvFile(path: string): Promise<Record<string, string>> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const content = await readFile(path, "utf8");
+    const vars: Record<string, string> = {};
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const value = trimmed.slice(eqIdx + 1).trim();
+      vars[key] = value;
+    }
+    return vars;
+  } catch {
+    return {};
+  }
+}
+
+export const checkEnvFile: Check = async (ctx) => {
+  const envVars = await readEnvFile(ctx.envPath);
+  const present: string[] = [];
+  const missing: string[] = [];
+  for (const key of REQUIRED_ENV_KEYS) {
+    const v = envVars[key];
+    if (typeof v === "string" && v !== "") {
+      present.push(maskEnvVar(key, v));
+    } else {
+      missing.push(key);
+    }
+  }
+
+  if (missing.length === REQUIRED_ENV_KEYS.length) {
+    return {
+      id: "env-file",
+      title: "env-file",
+      status: "warn",
+      detail: `missing all required keys: ${missing.join(", ")}`,
+    };
+  }
+
+  if (missing.length > 0) {
+    return {
+      id: "env-file",
+      title: "env-file",
+      status: "warn",
+      detail: `missing: ${missing.join(", ")}`,
+    };
+  }
+
+  return {
+    id: "env-file",
+    title: "env-file",
+    status: "ok",
+    detail: present.join(", "),
+  };
+};
