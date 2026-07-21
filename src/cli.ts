@@ -5,6 +5,8 @@ import { load as loadYaml } from "js-yaml";
 import sql from "mssql";
 
 import { prepareRuntimeEnvironment } from "./runtime.js";
+import { loadConfigFile } from "./config.js";
+import { runDoctorCore, renderReport, type DoctorDependencies } from "./doctor.js";
 import { migrateStableConfig } from "./migrate.js";
 import { saveDatabasePassword, loadDatabasePassword, saveSecret, loadSecret } from "./keytar.js";
 import { buildOpenCodeConfig } from "./opencode.js";
@@ -56,6 +58,7 @@ interface EnvVars {
 }
 
 function maskEnvVar(name: string, value: string | undefined): string {
+  // Kept byte-identical with src/doctor.ts:208; extraction is intentionally deferred.
   if (value === undefined || value === "") return `${name}=(not set)`;
   const lower = name.toLowerCase();
   if (lower.includes("password") || lower.includes("token") || lower.includes("secret")) {
@@ -818,9 +821,33 @@ void (async (): Promise<void> => {
       await cmdUpdate();
       break;
 
-    case "config":
-      await cmdConfig();
+    case "doctor": {
+      const checkAuth = process.argv.includes("--check-auth") || process.argv.includes("auth", 3);
+      const envPath = getStableEnvPath();
+      const root = getStableConfigDir();
+      const configPath = getStableConfigPath();
+      let config;
+      try {
+        config = await loadConfigFile(configPath, process.env, root);
+      } catch {
+        console.error(`Config file not found: ${configPath}`);
+        console.error("Run 'yhat-mcp setup' first.");
+        process.exitCode = 2;
+        break;
+      }
+      const deps: DoctorDependencies = {
+        root,
+        envPath,
+        config,
+        secretStore: null,
+        pkgVersion: await getLocalVersion(),
+        checks: [],
+      };
+      const report = await runDoctorCore({ flags: { checkAuth }, deps });
+      process.stdout.write(`${renderReport(report)}\n`);
+      process.exitCode = report.exitCode;
       break;
+    }
 
     default:
       console.log(`Usage: yhat-mcp <command>
@@ -832,6 +859,8 @@ Commands:
   start     Start the MCP server
   update    Check for and install updates
   config    Edit the whitelist interactively
-`);
+  doctor    Run read-only diagnostic checks (use --check auth to verify credentials)
+ `);
+
   }
 })();

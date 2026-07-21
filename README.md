@@ -84,6 +84,7 @@ La contraseña de la base de datos se almacena en el keychain del SO (Windows Cr
 | `yhat-mcp uninstall` | Remueve el servidor de OpenCode |
 | `yhat-mcp config` | Editor interactivo del whitelist |
 | `yhat-mcp update` | Busca y aplica actualizaciones desde GitHub Releases |
+| `yhat-mcp doctor` | Ejecuta diagnósticos de solo lectura; `--check auth` verifica credenciales |
 
 ## Arquitectura
 
