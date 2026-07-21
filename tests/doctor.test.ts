@@ -7,10 +7,12 @@ import {
   checkEnvFile,
   checkTcpConnectivity,
   checkWhitelist,
+  detectOutputMode,
   formatReport,
   toJsonReport,
   aggregateSummary,
   executeChecks,
+  renderReport,
   runChecks,
   type CheckContext,
   type CheckResult,
@@ -441,6 +443,76 @@ describe("doctor — orchestration (executeChecks)", () => {
     const fail = results.find((r: CheckResult) => r.id === "check-2");
     strictEqual(fail?.status, "fail");
     ok(fail?.detail?.includes("boom"));
+  });
+});
+
+describe("doctor — TTY detection", () => {
+  it("detectOutputMode returns 'text' when stdout.isTTY is strictly true", () => {
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    try {
+      strictEqual(detectOutputMode(), "text");
+    } finally {
+      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("detectOutputMode returns 'json' when stdout.isTTY is false", () => {
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    try {
+      strictEqual(detectOutputMode(), "json");
+    } finally {
+      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("detectOutputMode returns 'json' when stdout.isTTY is undefined", () => {
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: undefined, configurable: true });
+    try {
+      strictEqual(detectOutputMode(), "json");
+    } finally {
+      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("renderReport returns the same string formatReport would produce for the detected mode", () => {
+    const report = makeReport({ exitCode: 0 });
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    try {
+      const textFromRender = renderReport(report);
+      const textFromFormat = formatReport(report, "text");
+      strictEqual(textFromRender, textFromFormat);
+    } finally {
+      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
+  });
+
+  it("renderReport has no stdout side effects (does not write to process.stdout)", () => {
+    const report = makeReport();
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    const writes: string[] = [];
+    (process.stdout as { write: (s: string) => boolean }).write = ((chunk: string): boolean => {
+      writes.push(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const output = renderReport(report);
+      strictEqual(writes.length, 0, "renderReport must not write to stdout");
+      ok(output.length > 0);
+    } finally {
+      process.stdout.write = originalWrite;
+      if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
+      else delete (process.stdout as { isTTY?: boolean }).isTTY;
+    }
   });
 });
 

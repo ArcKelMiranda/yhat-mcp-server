@@ -483,3 +483,20 @@ export async function runChecks(
 export async function runDoctorCore(options: DoctorOptions): Promise<DoctorReport> {
   return runChecks(options.deps.checks, options.deps, options.flags);
 }
+
+// ─────────────────────────────────────────────────────────────
+// TTY detection and render dispatch (T13)
+// ─────────────────────────────────────────────────────────────
+
+export type OutputMode = "text" | "json";
+
+export function detectOutputMode(): OutputMode {
+  // Strict === true to avoid classifying Windows GUI terminals as TTY
+  // when they report a non-true value. Default is JSON so CI output is
+  // always machine-parseable.
+  return process.stdout.isTTY === true ? "text" : "json";
+}
+
+export function renderReport(report: DoctorReport): string {
+  return formatReport(report, detectOutputMode());
+}
