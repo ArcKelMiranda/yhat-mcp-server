@@ -2,8 +2,9 @@ import { describe, it } from "node:test";
 import { ok, strictEqual, deepStrictEqual } from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createServer, createConnection } from "node:net";
+import { spawnSync } from "node:child_process";
 
 import type { SecretStore } from "../src/keytar.js";
 
@@ -693,6 +694,48 @@ describe("doctor — TTY detection", () => {
       if (desc) Object.defineProperty(process.stdout, "isTTY", desc);
       else delete (process.stdout as { isTTY?: boolean }).isTTY;
     }
+  });
+});
+
+describe("doctor — config and TCP integration", () => {
+  it("exits 2 with the resolved config path and setup hint when config is absent", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-missing-config-"));
+    try {
+      const result = spawnSync(process.execPath, ["--import", "tsx", resolve("src/cli.ts"), "doctor"], {
+        cwd: process.cwd(),
+        env: { ...process.env, YHAT_CONFIG_ROOT: workspace },
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      const expectedPath = join(workspace, "config", "yhat-mcp-config.yaml");
+
+      strictEqual(result.status, 2);
+      ok(result.stderr.includes(expectedPath));
+      ok(result.stderr.includes("yhat-mcp setup"));
+      ok(!result.stdout.includes("\"checks\""), "must not emit a partial doctor report");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it("re-probes TCP on each runDoctorCore invocation", async () => {
+    let probes = 0;
+    const probe = async (): Promise<CheckResult> => {
+      probes += 1;
+      return {
+        id: "tcp-connectivity",
+        title: "tcp-connectivity",
+        status: probes === 1 ? "ok" : "fail",
+      };
+    };
+    const deps = makeDeps({ checks: [probe] });
+
+    const first = await runDoctorCore({ flags: makeFlags(), deps });
+    const second = await runDoctorCore({ flags: makeFlags(), deps });
+
+    strictEqual(probes, 2);
+    strictEqual(first.checks[0]?.status, "ok");
+    strictEqual(second.checks[0]?.status, "fail");
   });
 });
 
