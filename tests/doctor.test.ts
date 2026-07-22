@@ -28,6 +28,7 @@ import {
   runChecks,
   type CheckContext,
   type CheckResult,
+  type CreateAuthRoundtripPool,
   type DoctorDependencies,
   type DoctorFlags,
   type DoctorReport,
@@ -428,6 +429,118 @@ describe("doctor — check whitelist", () => {
     const result = await checkWhitelist(ctx);
     strictEqual(result.detail?.includes("secretSchema"), false);
     strictEqual(result.detail?.includes("secretTable"), false);
+  });
+});
+
+function makeAuthConfig(): CheckContext["config"] {
+  return {
+    database: {
+      host: "db.example.test",
+      port: 1433,
+      name: "example",
+      user: "doctor-user",
+      passwordEnv: "YHAT_DOCTOR_AUTH_PASSWORD",
+      encrypt: true,
+      trustServerCertificate: false,
+    },
+    limits: { queryTimeoutSeconds: 1 },
+  } as CheckContext["config"];
+}
+
+function makeAuthPoolFactory(
+  query: (sqlText: string) => Promise<unknown>,
+): { factory: CreateAuthRoundtripPool; queries: string[]; closes: number[] } {
+  const queries: string[] = [];
+  const closes: number[] = [];
+  return {
+    queries,
+    closes,
+    factory: () => ({
+      connect: async () => undefined,
+      request: () => ({
+        query: async (sqlText: string) => {
+          queries.push(sqlText);
+          return query(sqlText);
+        },
+      }),
+      close: async () => {
+        closes.push(1);
+      },
+    }),
+  };
+}
+
+describe("doctor — auth roundtrip", () => {
+  it("returns ok with durationMs when the opt-in auth check succeeds", async () => {
+    const pool = makeAuthPoolFactory(async () => ({ recordset: [{ value: 1 }] }));
+    const result = await checkAuthRoundtrip(
+      makeContext({
+        config: makeAuthConfig(),
+        secretStore: makeSecretStore("valid-secret"),
+        flags: { checkAuth: true },
+        createAuthRoundtripPool: pool.factory,
+      }),
+    );
+
+    strictEqual(result.status, "ok");
+    strictEqual(pool.queries.join(","), "SELECT 1");
+    strictEqual(pool.closes.length, 1);
+    const data = result.data as { durationMs: number };
+    ok(data.durationMs >= 0);
+  });
+
+  it("omits auth-roundtrip when the auth flag is absent", async () => {
+    const pool = makeAuthPoolFactory(async () => ({ recordset: [{ value: 1 }] }));
+    const report = await runDoctorCore({
+      flags: { checkAuth: false },
+      deps: makeDeps({
+        config: makeAuthConfig(),
+        secretStore: makeSecretStore("valid-secret"),
+        checks: [makeOkCheck("baseline")],
+        createAuthRoundtripPool: pool.factory,
+      }),
+    });
+
+    strictEqual(report.checks.some((result) => result.id === "auth-roundtrip"), false);
+    strictEqual(pool.queries.length, 0);
+  });
+
+  it("returns fail without opening a pool when credentials are not stored", async () => {
+    const pool = makeAuthPoolFactory(async () => ({ recordset: [{ value: 1 }] }));
+    const result = await checkAuthRoundtrip(
+      makeContext({
+        config: makeAuthConfig(),
+        secretStore: makeSecretStore(null),
+        flags: { checkAuth: true },
+        createAuthRoundtripPool: pool.factory,
+      }),
+    );
+
+    strictEqual(result.status, "fail");
+    strictEqual(result.detail, "credentials not stored");
+    strictEqual(pool.queries.length, 0);
+  });
+
+  it("returns a sanitized fail result when SELECT 1 rejects", async () => {
+    const connectionString = "Server=db.example.test;Password=supersecret123";
+    const pool = makeAuthPoolFactory(async () => {
+      throw new Error(`Login failed password=supersecret123 connection string=${connectionString}\n    at driver.ts:42`);
+    });
+    const result = await checkAuthRoundtrip(
+      makeContext({
+        config: makeAuthConfig(),
+        secretStore: makeSecretStore("supersecret123"),
+        flags: { checkAuth: true },
+        createAuthRoundtripPool: pool.factory,
+      }),
+    );
+
+    strictEqual(result.status, "fail");
+    ok(result.detail?.includes("auth failed:"));
+    ok(!result.detail?.includes("supersecret123"));
+    ok(!result.detail?.includes(connectionString));
+    ok(!result.detail?.includes("driver.ts"));
+    strictEqual(pool.closes.length, 1);
   });
 });
 

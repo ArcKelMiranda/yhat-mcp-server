@@ -26,6 +26,7 @@ export interface CheckContext {
   secretStore: SecretStore | null;
   flags: { checkAuth: boolean };
   pkgVersion: string;
+  createAuthRoundtripPool?: CreateAuthRoundtripPool;
 }
 
 export type Check = (ctx: CheckContext) => Promise<CheckResult> | CheckResult;
@@ -478,7 +479,10 @@ export const checkOpenCodeRegistration: Check = async () => {
 };
 
 function sanitizeAuthError(message: string): string {
-  return message.replace(/(password|passwd|pwd|secret|token|connection\s*string)\s*[:=]?\s*[^\s,;]+/gi, "$1=[REDACTED]");
+  const firstLine = message.split(/\r?\n/, 1)[0] ?? "unknown error";
+  return firstLine
+    .replace(/connection\s*string\s*[:=]?\s*[^\s,;]+/gi, "connection string=[REDACTED]")
+    .replace(/(password|passwd|pwd|secret|token|user)\s*[:=]?\s*[^\s,;]+/gi, "$1=[REDACTED]");
 }
 
 export const checkAuthRoundtrip: Check = async (ctx) => {
@@ -496,7 +500,7 @@ export const checkAuthRoundtrip: Check = async (ctx) => {
     return { id: "auth-roundtrip", title: "auth-roundtrip", status: "fail", detail: "credentials not stored" };
   }
 
-  const pool = new sql.ConnectionPool({
+  const pool = (ctx.createAuthRoundtripPool ?? createAuthRoundtripPool)({
     server: ctx.config.database.host,
     database: ctx.config.database.name,
     user: ctx.config.database.user,
@@ -524,6 +528,16 @@ export const checkAuthRoundtrip: Check = async (ctx) => {
 };
 
 
+export interface AuthRoundtripPool {
+  connect(): Promise<unknown>;
+  request(): { query(query: string): Promise<unknown> };
+  close(): Promise<unknown>;
+}
+
+export type CreateAuthRoundtripPool = (config: sql.config) => AuthRoundtripPool;
+
+const createAuthRoundtripPool: CreateAuthRoundtripPool = (config) => new sql.ConnectionPool(config);
+
 export interface DoctorFlags {
   checkAuth: boolean;
 }
@@ -535,6 +549,7 @@ export interface DoctorDependencies {
   secretStore: SecretStore | null;
   pkgVersion: string;
   checks: readonly Check[];
+  createAuthRoundtripPool?: CreateAuthRoundtripPool;
 }
 
 export interface DoctorOptions {
@@ -551,7 +566,7 @@ export const STANDARD_CHECKS: readonly Check[] = [
 ];
 
 export function buildContext(deps: DoctorDependencies, flags: DoctorFlags): CheckContext {
-  return {
+  const ctx: CheckContext = {
     root: deps.root,
     envPath: deps.envPath,
     config: deps.config,
@@ -559,6 +574,10 @@ export function buildContext(deps: DoctorDependencies, flags: DoctorFlags): Chec
     flags,
     pkgVersion: deps.pkgVersion,
   };
+  if (deps.createAuthRoundtripPool !== undefined) {
+    ctx.createAuthRoundtripPool = deps.createAuthRoundtripPool;
+  }
+  return ctx;
 }
 
 export async function executeChecks(
