@@ -8,7 +8,7 @@ import { prepareRuntimeEnvironment } from "./runtime.js";
 import { loadConfigFile } from "./config.js";
 import { runDoctorCore, renderReport, type DoctorDependencies } from "./doctor.js";
 import { migrateStableConfig } from "./migrate.js";
-import { saveDatabasePassword, loadDatabasePassword, saveSecret, loadSecret } from "./keytar.js";
+import { loadSecretStore, saveDatabasePassword, loadDatabasePassword, saveSecret, loadSecret } from "./keytar.js";
 import { buildOpenCodeConfig } from "./opencode.js";
 import { createServer } from "./server.js";
 import { runStartCommand } from "./start.js";
@@ -839,7 +839,7 @@ void (async (): Promise<void> => {
         root,
         envPath,
         config,
-        secretStore: null,
+        secretStore: await loadSecretStore(),
         pkgVersion: await getLocalVersion(),
         checks: [],
       };

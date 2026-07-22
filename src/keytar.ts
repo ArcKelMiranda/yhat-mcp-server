@@ -9,7 +9,7 @@ export interface SecretStore {
   deletePassword(service: string, account: string): Promise<boolean>;
 }
 
-async function loadSecretStore(): Promise<SecretStore | null> {
+export async function loadSecretStore(): Promise<SecretStore | null> {
   try {
     const keytar = (await import("keytar")) as typeof keytarModule;
 
