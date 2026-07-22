@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, createConnection } from "node:net";
 
+import type { SecretStore } from "../src/keytar.js";
+
 import {
   checkVersion,
   checkConfigRoot,
@@ -319,6 +321,66 @@ describe("doctor — check tcp-connectivity", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     strictEqual(writeSpy.length, 0, "TCP probe must not write anything to the socket");
     strictEqual(receivedData, null, "server received no payload bytes");
+  });
+});
+
+function makeSecretStore(secret: string | null): SecretStore {
+  return {
+    getPassword: async () => secret,
+    setPassword: async () => undefined,
+    deletePassword: async () => true,
+  };
+}
+
+function makeKeychainContext(secret: string | null): CheckContext {
+  return makeContext({
+    secretStore: makeSecretStore(secret),
+    config: {
+      database: { passwordEnv: "YHAT_DOCTOR_TEST_PASSWORD" },
+    } as CheckContext["config"],
+  });
+}
+
+describe("doctor — check keychain", () => {
+  it("returns ok when keytar is loadable and the secret is present", async () => {
+    const result = await checkKeychain(makeKeychainContext("stored-secret"));
+
+    strictEqual(result.status, "ok");
+    strictEqual(result.detail, "secret present");
+    strictEqual(result.data, undefined);
+  });
+
+  it("returns fail when keytar is loadable but the secret is absent", async () => {
+    const result = await checkKeychain(makeKeychainContext(null));
+
+    strictEqual(result.status, "fail");
+    ok(result.detail?.includes("missing secret"));
+  });
+
+  it("returns warn when keytar is unavailable on Windows", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    try {
+      const result = await checkKeychain(makeContext({ secretStore: null }));
+
+      strictEqual(result.status, "warn");
+      ok(result.detail?.includes("prebuild not available"));
+    } finally {
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
+  });
+
+  it("returns fail with an install hint when keytar is unavailable on Linux", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+    try {
+      const result = await checkKeychain(makeContext({ secretStore: null }));
+
+      strictEqual(result.status, "fail");
+      ok(result.detail?.includes("libsecret-1-0"));
+    } finally {
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
   });
 });
 

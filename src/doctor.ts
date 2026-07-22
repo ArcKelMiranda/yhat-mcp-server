@@ -399,8 +399,8 @@ export const checkKeychain: Check = async (ctx) => {
     };
   }
 
-  const secret = await loadSecret(KEYTAR_ACCOUNT, process.env, ctx.secretStore);
-  if (secret === null) {
+  const secret = await ctx.secretStore.getPassword("yhat-mcp", KEYTAR_ACCOUNT);
+  if (secret === null || secret === "") {
     return {
       id: "keychain",
       title: "keychain",
