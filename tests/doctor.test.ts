@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import { ok, strictEqual, deepStrictEqual } from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer, createConnection } from "node:net";
@@ -542,6 +542,36 @@ describe("doctor — auth roundtrip", () => {
     ok(!result.detail?.includes(connectionString));
     ok(!result.detail?.includes("driver.ts"));
     strictEqual(pool.closes.length, 1);
+  });
+});
+
+describe("doctor — auth audit invariants", () => {
+  it("does not modify an existing audit log during the auth check", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "yhat-doctor-auth-audit-"));
+    const auditPath = join(workspace, "audit-2026-07-22T00-00-00-000Z.ndjson");
+    const original = "{\"event\":\"before\"}\n";
+    writeFileSync(auditPath, original, "utf8");
+    const before = statSync(auditPath);
+    const pool = makeAuthPoolFactory(async () => ({ recordset: [{ value: 1 }] }));
+    try {
+      const result = await checkAuthRoundtrip(
+        makeContext({
+          root: workspace,
+          config: makeAuthConfig(),
+          secretStore: makeSecretStore("valid-secret"),
+          flags: { checkAuth: true },
+          createAuthRoundtripPool: pool.factory,
+        }),
+      );
+      const after = statSync(auditPath);
+
+      strictEqual(result.status, "ok");
+      strictEqual(readFileSync(auditPath, "utf8"), original);
+      strictEqual(after.size, before.size);
+      strictEqual(after.mtimeMs, before.mtimeMs);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 });
 
